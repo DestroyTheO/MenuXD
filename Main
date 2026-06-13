@@ -2140,8 +2140,8 @@ function Library:new(options)
 		miniUI          = nil,     -- alias: true only if you intentionally want the old top-right HUD
 		miniTitle       = "VENTURA",
 		responsiveScale = true,    -- auto-fit/rescale when the Roblox window/screen size changes
-		resizeSnap      = false,   -- patched: do NOT snap/recenter the UI on respawn/reload/window resize
-		resizeSnapMode  = "none",   -- patched: no forced center snap by default
+		resizeSnap      = true,    -- when the Roblox window changes size, snap UI back to visible spots
+		resizeSnapMode  = "center", -- main window snap mode: "center" or "corner"
 		looseDragBounds = false,   -- legacy option; drag borders are removed in 5.8
 		dragBounds      = false,   -- false = no screen-edge clamping at all
 		offscreenGrip   = 0,       -- legacy option kept for compatibility
@@ -4186,33 +4186,11 @@ local _defaultWinW, _defaultWinH = winW, winH
 	end
 
 	local _responsiveScaleEnabled = true -- 5.12+: responsive scale is always enabled by default
-	local _resizeSnapEnabled = options.resizeSnap == true
-	local _resizeSnapMode = tostring(options.resizeSnapMode or "none"):lower()
-
-	-- Patched: remember the dragged window position across UI rebuilds in the same session.
-	-- This prevents re-exec/respawn reloads from throwing the UI back to the middle.
-	_runtimeRoot.windowPositions = _runtimeRoot.windowPositions or {}
-	local _runtimeWindowKey = tostring(options.name or options.title or options.windowName or "VenturaUI")
-	local function _saveMainWrapPosition()
-		if MainWrap and MainWrap.Parent then
-			_runtimeRoot.windowPositions[_runtimeWindowKey] = {
-				x = MainWrap.Position.X.Offset,
-				y = MainWrap.Position.Y.Offset,
-			}
-		end
-	end
-	local function _restoreMainWrapPosition()
-		local pos = _runtimeRoot.windowPositions and _runtimeRoot.windowPositions[_runtimeWindowKey]
-		if pos and tonumber(pos.x) and tonumber(pos.y) then
-			MainWrap.Position = UDim2.new(0, tonumber(pos.x), 0, tonumber(pos.y))
-			return true
-		end
-		return false
-	end
+	local _resizeSnapEnabled = options.resizeSnap ~= false
+	local _resizeSnapMode = tostring(options.resizeSnapMode or "center"):lower()
 	local _lastViewportSize = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
 
 	local function _snapMainToViewport(sw, sh)
-		if _resizeSnapMode == "none" or _resizeSnapMode == "off" or _resizeSnapMode == "false" then return end
 		local cam = workspace.CurrentCamera
 		local vps = cam and cam.ViewportSize or Vector2.new(1280, 720)
 		if _resizeSnapMode == "corner" or _resizeSnapMode == "top-left" or _resizeSnapMode == "topleft" then
@@ -4251,10 +4229,10 @@ local _defaultWinW, _defaultWinH = winW, winH
 			MainWrap.Position = UDim2.new(0, x, 0, y)
 		end
 	end
-	task.defer(function() _applyResponsiveScale(false); _restoreMainWrapPosition() end)
+	task.defer(function() _applyResponsiveScale(true) end)
 	pcall(function()
 		track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-			_applyResponsiveScale(false)
+			_applyResponsiveScale(true)
 			pcall(function() GUI:MarkConfigDirty() end)
 		end))
 	end)
@@ -4274,18 +4252,16 @@ local _defaultWinW, _defaultWinH = winW, winH
 	local _doTypewriter = false  -- set true once titleLabel exists
 
 	local function showMainWindow()
-		MainWrap.Visible = true
+		MainWrap.Visible=true
 		local sw, sh = getScaledWindowSize()
-		local oldPos = MainWrap.Position
-		_restoreMainWrapPosition()
-		oldPos = MainWrap.Position
-
-		tw(MainWrap, {Size = UDim2.new(0, sw, 0, sh)}, TI_SLOW, function()
-			-- Patched: keep the dragged/current position. Do NOT force center.
-			if MainWrap and MainWrap.Parent then
-				MainWrap.Position = oldPos
-				_saveMainWrapPosition()
-			end
+		tw(MainWrap,{Size=UDim2.new(0,sw,0,sh)},TI_SLOW, function()
+			-- After open tween, convert scale position to pixel offset
+			-- AbsolutePosition with AnchorPoint(0.5,0.5) gives top-left corner
+			-- The center point = top-left + half size
+			local vps = workspace.CurrentCamera.ViewportSize
+			local cx  = vps.X * 0.5  -- window starts centered
+			local cy  = vps.Y * 0.5
+			MainWrap.Position = UDim2.new(0, cx, 0, cy)
 		end)
 		_doTypewriter = true
 	end
@@ -5951,23 +5927,23 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	function GUI:Close() GUI:Destroy() end
 	function GUI:SetResponsiveScale(state)
 		_responsiveScaleEnabled = state ~= false
-		if _responsiveScaleEnabled then _applyResponsiveScale(false) end
+		if _responsiveScaleEnabled then _applyResponsiveScale(true) end
 		pcall(function() GUI:MarkConfigDirty() end)
 		return _responsiveScaleEnabled
 	end
 	function GUI:GetResponsiveScale() return _responsiveScaleEnabled == true end
 	function GUI:SetResizeSnapEnabled(state)
-		_resizeSnapEnabled = state == true
-		if _resizeSnapEnabled then _applyResponsiveScale(false) end
+		_resizeSnapEnabled = state ~= false
+		if _resizeSnapEnabled then _applyResponsiveScale(true) end
 		pcall(function() GUI:MarkConfigDirty() end)
 		return _resizeSnapEnabled
 	end
 	function GUI:GetResizeSnapEnabled() return _resizeSnapEnabled == true end
 	function GUI:SetResizeSnapMode(mode)
-		mode = tostring(mode or "none"):lower()
-		if mode ~= "corner" and mode ~= "top-left" and mode ~= "topleft" and mode ~= "center" then mode = "none" end
+		mode = tostring(mode or "center"):lower()
+		if mode ~= "corner" and mode ~= "top-left" and mode ~= "topleft" then mode = "center" end
 		_resizeSnapMode = mode
-		_applyResponsiveScale(false)
+		_applyResponsiveScale(true)
 		pcall(function() GUI:MarkConfigDirty() end)
 		return _resizeSnapMode
 	end
@@ -6175,13 +6151,10 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			newY = math.clamp(newY, sh/2, vps.Y - sh/2)
 		end
 		MainWrap.Position = UDim2.new(0,newX,0,newY)
-		_saveMainWrapPosition()
 	end))
 	track(UIS.InputEnded:Connect(function(i)
 		if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
 			V.dragging = false
-			_saveMainWrapPosition()
-			pcall(function() GUI:MarkConfigDirty() end)
 		end
 	end))
 
@@ -10543,8 +10516,6 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			winH      = math.floor(winH),
 			renderW   = math.floor((MainWrap and MainWrap.AbsoluteSize.X > 0) and MainWrap.AbsoluteSize.X or select(1, getScaledWindowSize())),
 			renderH   = math.floor((MainWrap and MainWrap.AbsoluteSize.Y > 0) and MainWrap.AbsoluteSize.Y or select(2, getScaledWindowSize())),
-			mainWindowX = MainWrap and MainWrap.Position.X.Offset or 0,
-			mainWindowY = MainWrap and MainWrap.Position.Y.Offset or 0,
 			toggleKey = keys.toggle.Name,
 			miniVisible = V.floatingMiniAllowed and V.miniVisible == true or false,
 			miniX = (V.floatingMiniAllowed and V.miniFrame) and V.miniFrame.Position.X.Offset or 0,
@@ -10609,8 +10580,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			watermarkScaleX = 1,
 			watermarkScaleY = 0,
 			responsiveScale = true,
-			resizeSnap = false,
-			resizeSnapMode = "none",
+			resizeSnap = true,
+			resizeSnapMode = "center",
 			dragBounds = false,
 		}
 		for id, control in pairs(GUI._configControls or {}) do
@@ -10839,19 +10810,13 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		end
 		local sw, sh = applyWindowScale(false, V.minimized and 34 or nil)
 		MainWrap.Size = UDim2.new(0, sw, 0, V.minimized and 34 or sh)
-		task.defer(function() if not _destroyed then applyWindowScale(false, V.minimized and 34 or nil); _applyResponsiveScale(false); _restoreMainWrapPosition() end end)
-		if data.mainWindowX and data.mainWindowY then
-			MainWrap.Position = UDim2.new(0, tonumber(data.mainWindowX) or MainWrap.Position.X.Offset, 0, tonumber(data.mainWindowY) or MainWrap.Position.Y.Offset)
-			_saveMainWrapPosition()
-		else
-			_restoreMainWrapPosition()
-		end
+		task.defer(function() if not _destroyed then applyWindowScale(false, V.minimized and 34 or nil); _applyResponsiveScale(true) end end)
 		if GUI._cfgSyncCallbacks.scale then pcall(GUI._cfgSyncCallbacks.scale, currentScale) end
 		-- 5.19+: responsive scaling is on by default but can be toggled off in Settings.
 		_responsiveScaleEnabled = data.responsiveScale ~= false
 		if GUI._cfgSyncCallbacks.responsiveScale then pcall(GUI._cfgSyncCallbacks.responsiveScale, _responsiveScaleEnabled) end
-		_resizeSnapEnabled = data.resizeSnap == true
-		_resizeSnapMode = tostring(data.resizeSnapMode or _resizeSnapMode or "none"):lower()
+		_resizeSnapEnabled = data.resizeSnap ~= false
+		_resizeSnapMode = tostring(data.resizeSnapMode or _resizeSnapMode or "center"):lower()
 		if GUI._cfgSyncCallbacks.resizeSnap then pcall(GUI._cfgSyncCallbacks.resizeSnap, _resizeSnapEnabled) end
 		if data.dragBounds ~= nil then
 			options.dragBounds = data.dragBounds == true
@@ -10910,7 +10875,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		-- After old saved positions are restored, recover visibility once more so tiny/small
 		-- Roblox window sizes never leave the UI lost off-screen.
 		if _resizeSnapEnabled then
-			task.defer(function() if not _destroyed then _applyResponsiveScale(false); _restoreMainWrapPosition() end end)
+			task.defer(function() if not _destroyed then _applyResponsiveScale(true) end end)
 		end
 	end
 
@@ -10984,8 +10949,6 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			winH      = math.floor(winH),
 			renderW   = math.floor((MainWrap and MainWrap.AbsoluteSize.X > 0) and MainWrap.AbsoluteSize.X or select(1, getScaledWindowSize())),
 			renderH   = math.floor((MainWrap and MainWrap.AbsoluteSize.Y > 0) and MainWrap.AbsoluteSize.Y or select(2, getScaledWindowSize())),
-			mainWindowX = MainWrap and MainWrap.Position.X.Offset or 0,
-			mainWindowY = MainWrap and MainWrap.Position.Y.Offset or 0,
 			toggleKey = keys.toggle.Name,
 			miniVisible = V.floatingMiniAllowed and V.miniVisible == true or false,
 			miniX = (V.floatingMiniAllowed and V.miniFrame) and V.miniFrame.Position.X.Offset or 0,
@@ -11300,8 +11263,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			watermarkScaleX = 1,
 			watermarkScaleY = 0,
 			responsiveScale = true,
-			resizeSnap = false,
-			resizeSnapMode = "none",
+			resizeSnap = true,
+			resizeSnapMode = "center",
 			dragBounds = false,
 		}
 		for id, control in pairs(GUI._configControls or {}) do
