@@ -18,7 +18,7 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.88-position-persistence"
+Library.Version = "5.89-number-display"
 
 -- ══════════════════════════════════════════════════════════════════════
 -- RUNTIME GUARD
@@ -2290,7 +2290,7 @@ function Library:new(options)
 		local methods = {
 			"Section", "Info", "Label", "Divider", "Separator", "Button", "ButtonGrid",
 			"Toggle", "Slider", "Dropdown", "SearchDropdown", "ColorPicker", "TextInput",
-			"Keybind", "StatusCard", "Stat", "StatCard", "MiniStat", "ButtonRow",
+			"Keybind", "StatusCard", "Stat", "StatCard", "MiniStat", "NumberDisplay", "ValueDisplay", "PriceDisplay", "TotalDisplay", "Total", "ButtonRow",
 			"ActionRow", "Actions", "ToggleButton", "ToggleCard", "CodeBlock", "SearchBox",
 			"MultiDropdown", "MultiSelect", "MultiSelectDropdown", "Spacer",
 		}
@@ -2756,7 +2756,7 @@ function Library:new(options)
 			Section=true, Button=true, Toggle=true, Slider=true, Dropdown=true, SearchDropdown=true, Keybind=true,
 			TextInput=true, CopyButton=true, Stepper=true, Segmented=true, StatusCard=true, ToggleButton=true,
 			ToggleCard=true, Alert=true, Notice=true, Banner=true, CodeBlock=true, SearchBox=true, Property=true,
-			PropertyRow=true, Stat=true, StatCard=true, MiniStat=true, KeyValue=true,
+			PropertyRow=true, Stat=true, StatCard=true, MiniStat=true, KeyValue=true, NumberDisplay=true,
 		}
 		if not growNames[pname] then return end
 		_rememberGuiBase(parent)
@@ -8331,6 +8331,148 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		end
 
 
+
+		-- ── NUMBER / PRICE / TOTAL DISPLAY ───────────────────────────────────────
+		-- Read-only numeric output for price calculators, totals, balances, counts,
+		-- quantities, percentages, and other live values.
+		--
+		-- Example:
+		-- local Total = Tab:NumberDisplay({name="Total", value=0, prefix="$", decimals=2})
+		-- Total:Set(149.99)
+		function Tab:NumberDisplay(opts)
+			opts = validate({
+				name = "Total",
+				description = "",
+				tooltip = "",
+				value = 0,
+				default = nil,
+				prefix = "",
+				suffix = "",
+				decimals = 0,
+				commas = true,
+				compact = false,
+				icon = "",
+				placeholder = "—",
+				valueColor = nil,
+				formatter = nil,
+			}, opts)
+
+			local Display = {}
+			local initial = opts.default ~= nil and opts.default or opts.value
+			Display.Value = tonumber(initial) or 0
+
+			local hasDesc = tostring(opts.description or "") ~= ""
+			local h = hasDesc and 64 or 52
+			Display.frame = base("NumberDisplay", h)
+			pad(Display.frame, 0, 8, 0, 10)
+
+			local title, desc = labelPair(Display.frame, opts.name, opts.description, 170, hasDesc and 11 or 17)
+			if opts.icon ~= "" then
+				title.Text = tostring(opts.icon) .. "  " .. tostring(opts.name)
+			end
+
+			local valueBox = Instance.new("Frame", Display.frame)
+			valueBox.Name = "NumberDisplayValue"
+			valueBox.AnchorPoint = Vector2.new(1, 0.5)
+			valueBox.Position = UDim2.new(1, 0, 0.5, 0)
+			valueBox.Size = UDim2.new(0, 156, 0, 32)
+			valueBox.BackgroundColor3 = Library.Theme.Background
+			valueBox.BorderSizePixel = 0
+			corner(valueBox, 7)
+			stroke(valueBox, Library.Theme.Border)
+
+			local valueLabel = lbl(valueBox, "", 15, opts.valueColor or Library.Theme.Accent,
+				Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.Bold))
+			valueLabel.Name = "NumberDisplayText"
+			valueLabel.Size = UDim2.new(1, -16, 1, 0)
+			valueLabel.Position = UDim2.new(0, 8, 0, 0)
+			valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+			valueLabel.TextTruncate = Enum.TextTruncate.AtEnd
+			if not opts.valueColor then regAccent(valueLabel, "TextColor3") end
+
+			local function addCommas(text)
+				local sign, whole, frac = text:match("^([%-]?)(%d+)(.*)$")
+				if not whole then return text end
+				local reversed = whole:reverse():gsub("(%d%d%d)", "%1,")
+				whole = reversed:reverse():gsub("^,", "")
+				return (sign or "") .. whole .. (frac or "")
+			end
+
+			local function compactNumber(n, decimals)
+				local abs = math.abs(n)
+				local divisor, tag = 1, ""
+				if abs >= 1e12 then divisor, tag = 1e12, "T"
+				elseif abs >= 1e9 then divisor, tag = 1e9, "B"
+				elseif abs >= 1e6 then divisor, tag = 1e6, "M"
+				elseif abs >= 1e3 then divisor, tag = 1e3, "K" end
+				if divisor == 1 then return nil end
+				local places = math.max(0, math.min(3, tonumber(decimals) or 1))
+				local text = string.format("%." .. places .. "f", n / divisor)
+				text = text:gsub("(%..-)0+$", "%1"):gsub("%.$", "")
+				return text .. tag
+			end
+
+			local function formatValue(value)
+				if type(opts.formatter) == "function" then
+					local ok, result = pcall(opts.formatter, value, Display)
+					if ok and result ~= nil then return tostring(result) end
+				end
+				local n = tonumber(value)
+				if n == nil then
+					return tostring(value == nil and opts.placeholder or value)
+				end
+				local decimals = math.max(0, math.floor(tonumber(opts.decimals) or 0))
+				local text = opts.compact and compactNumber(n, decimals) or nil
+				if not text then text = string.format("%." .. decimals .. "f", n) end
+				if opts.commas and not opts.compact then text = addCommas(text) end
+				return tostring(opts.prefix or "") .. text .. tostring(opts.suffix or "")
+			end
+
+			local function render()
+				valueLabel.Text = formatValue(Display.Value)
+			end
+
+			function Display:Set(value)
+				local numeric = tonumber(value)
+				Display.Value = numeric ~= nil and numeric or value
+				render()
+				return Display
+			end
+			function Display:Get() return Display.Value end
+			function Display:Add(amount)
+				Display.Value = (tonumber(Display.Value) or 0) + (tonumber(amount) or 0)
+				render()
+				return Display
+			end
+			function Display:Subtract(amount)
+				Display.Value = (tonumber(Display.Value) or 0) - (tonumber(amount) or 0)
+				render()
+				return Display
+			end
+			function Display:SetPrefix(prefix) opts.prefix = tostring(prefix or ""); render(); return Display end
+			function Display:SetSuffix(suffix) opts.suffix = tostring(suffix or ""); render(); return Display end
+			function Display:SetDecimals(decimals) opts.decimals = math.max(0, math.floor(tonumber(decimals) or 0)); render(); return Display end
+			function Display:SetFormatter(formatter) opts.formatter = formatter; render(); return Display end
+			function Display:SetName(name) title.Text = (opts.icon ~= "" and tostring(opts.icon) .. "  " or "") .. tostring(name or ""); return Display end
+			function Display:SetDescription(text)
+				if desc then desc.Text = tostring(text or "") end
+				return Display
+			end
+			function Display:SetValueColor(color)
+				if typeof(color) == "Color3" then valueLabel.TextColor3 = color end
+				return Display
+			end
+
+			addTooltip(Display.frame, opts.tooltip)
+			render()
+			return Display
+		end
+
+		Tab.ValueDisplay = Tab.NumberDisplay
+		Tab.PriceDisplay = Tab.NumberDisplay
+		Tab.TotalDisplay = Tab.NumberDisplay
+		Tab.Total = Tab.NumberDisplay
+
 		-- ── ADVANCED LAYOUT HELPERS ─────────────────────────────────────────────
 		local function makeProxyParent(parent)
 			local Proxy = { _scroll = parent }
@@ -8339,7 +8481,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				"ProgressBar", "Button", "Toggle", "Slider", "Dropdown", "SearchDropdown",
 				"SearchableDropdown", "FilterDropdown", "TextInput", "ColorPicker", "Keybind",
 				"Warning", "Info", "Success", "Divider", "Chip", "ControlHint", "Hyperlink",
-				"StatusCard", "LogConsole"
+				"StatusCard", "LogConsole", "NumberDisplay", "ValueDisplay", "PriceDisplay", "TotalDisplay", "Total"
 			}
 			local function callTabMethod(methodName, ...)
 				local fn = Tab[methodName]
