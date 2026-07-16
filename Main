@@ -18,7 +18,7 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.94-modular-config-theme-engine"
+Library.Version = "5.95-drag-respawn-performance-fix"
 
 -- ══════════════════════════════════════════════════════════════════════
 -- RUNTIME GUARD
@@ -2154,7 +2154,7 @@ function Library:new(options)
 		destroyOnRespawn= false,
 		forceRebuild     = false, -- explicitly destroy/recreate an existing Ventura window
 		reuseExisting    = true,  -- persistent singleton; prevents respawn/script reruns rebuilding the UI
-		reconnectOnRespawn = true,
+		reconnectOnRespawn = false, -- opt-in only; prevents heavy callbacks replaying after every respawn
 		reconnectDelay   = 0.85,
 		keyEnabled      = false,
 		key             = nil,
@@ -2248,7 +2248,7 @@ function Library:new(options)
 		return UDim2.new(0, x, 0, y)
 	end
 
-	local GUI = {CurrentTab=nil, _tabs={}, _open=true, _accentObjects={}, _themeObjects={}, _themeListeners={}, _keybindWidgets={}, _activeKeybind=nil, _configControls={}, _toggleControls={}, _reconnectControls={}, _reconnectCallbacks={}, _loadedConfigData=nil, _configApplying=false, _destroyCallbacks={}, _cleanupCallbacks={}, _trackedProperties={}, _trackedHumanoidProperties={}, _trackedInstances={}, _activityStopped=false, _closing=false, _reconnectEnabled=(options.reconnectOnRespawn ~= false), _reconnectDelay=tonumber(options.reconnectDelay) or 0.85, _respawnToken=0}
+	local GUI = {CurrentTab=nil, _tabs={}, _open=true, _accentObjects={}, _themeObjects={}, _themeListeners={}, _keybindWidgets={}, _activeKeybind=nil, _configControls={}, _toggleControls={}, _reconnectControls={}, _reconnectCallbacks={}, _loadedConfigData=nil, _configApplying=false, _destroyCallbacks={}, _cleanupCallbacks={}, _trackedProperties={}, _trackedHumanoidProperties={}, _trackedInstances={}, _activityStopped=false, _closing=false, _reconnectEnabled=(options.reconnectOnRespawn == true), _reconnectDelay=tonumber(options.reconnectDelay) or 0.85, _respawnToken=0}
 
 	-- v5.77 Safe / Slow Load ----------------------------------------------------
 	-- Heavy theme/settings pages can be built in small chunks. This keeps the UI
@@ -2502,9 +2502,15 @@ function Library:new(options)
 	local function _registerReconnectControl(control, opts, kind)
 		if not control then return control end
 		opts = opts or {}
-		local defaultReconnect = (kind == "toggle" or kind == "slider")
+		-- Character callback replay is intentionally opt-in. Automatically replaying
+		-- every toggle/slider callback can duplicate RenderStepped loops, effects,
+		-- and character connections after each reset.
 		local shouldReconnect = (opts.reconnect == true) or (opts.reconnectOnRespawn == true)
-		if defaultReconnect and opts.reconnect ~= false and opts.reconnectOnRespawn ~= false then
+		if GUI._reconnectEnabled == true
+			and (kind == "toggle" or kind == "slider")
+			and opts.reconnect ~= false
+			and opts.reconnectOnRespawn ~= false
+		then
 			shouldReconnect = true
 		end
 		control._reconnectKind = kind or "generic"
@@ -2881,34 +2887,36 @@ function Library:new(options)
 		return true
 	end
 
-	-- Reconnect active controls after respawn/death so character-bound features keep working.
+	-- Lightweight respawn handling. The UI survives because ResetOnSpawn=false.
+	-- Do not wait for character parts or replay callbacks unless the script
+	-- explicitly enables reconnectOnRespawn.
 	track(LP.CharacterAdded:Connect(function(character)
 		_runtimeRoot.activeCharacter = character
-		local preservedWindowPosition = (MainWrap and MainWrap.Parent and MainWrap.Position) or _runtimeRoot.windowPosition
-		if preservedWindowPosition and typeof(preservedWindowPosition) == "UDim2" then
-			_runtimeRoot.windowPosition = preservedWindowPosition
+		GUI._respawnToken = (GUI._respawnToken or 0) + 1
+
+		-- Stop an in-progress mouse/touch operation so a destroyed input object
+		-- cannot keep the window moving or resizing after the reset.
+		V.dragging = false
+		V.dragInput = nil
+		V.resizeDragging = false
+		V.resizeInput = nil
+
+		local saved = (MainWrap and MainWrap.Parent and MainWrap.Position) or _runtimeRoot.windowPosition
+		if saved and typeof(saved) == "UDim2" then
+			_runtimeRoot.windowPosition = saved
 		end
-		_runtimeRoot.respawnGuardUntil = os.clock() + 10
-		local function restoreRespawnPosition()
+
+		task.defer(function()
 			if _destroyed or not MainWrap or not MainWrap.Parent then return end
-			local saved = (_runtimeRoot.windowPosition and typeof(_runtimeRoot.windowPosition) == "UDim2")
-				and _runtimeRoot.windowPosition or preservedWindowPosition
-			if saved and typeof(saved) == "UDim2" then
-				MainWrap.Position = saved
-				_runtimeRoot.windowPosition = saved
+			local position = _runtimeRoot.windowPosition
+			if position and typeof(position) == "UDim2" then
+				MainWrap.Position = position
 			end
-		end
-		restoreRespawnPosition()
-		task.defer(restoreRespawnPosition)
-		task.delay(0.25, restoreRespawnPosition)
-		task.delay(1.00, restoreRespawnPosition)
-		task.spawn(function()
-			if _destroyed or GUI._activityStopped then return end
-			pcall(function() character:WaitForChild("Humanoid", 5) end)
-			pcall(function() character:WaitForChild("HumanoidRootPart", 5) end)
-			restoreRespawnPosition()
-			_scheduleReconnect("CharacterAdded")
 		end)
+
+		if GUI._reconnectEnabled == true then
+			_scheduleReconnect("CharacterAdded")
+		end
 	end))
 
 	-- ══════════════════════════════════════════════════════════════════════
@@ -3082,24 +3090,26 @@ function Library:new(options)
 		_syncWatermarkStats()
 	end
 
-	-- Shared stats updater. This runs even when the old top-right HUD is disabled,
-	-- so the top-left mini/watermark bar still gets live FPS + ping.
+	-- Only run the stats loop when a stats surface is actually requested.
 	V._fpsFrames, V._fpsElapsed, V._pingElapsed = 0, 0, 0
-	track(RunService.RenderStepped:Connect(function(dt)
-		if _destroyed then return end
-		V._fpsFrames = V._fpsFrames + 1
-		V._fpsElapsed = V._fpsElapsed + dt
-		V._pingElapsed = V._pingElapsed + dt
-		if V._fpsElapsed >= 0.5 then
-			V.miniStats.fps = math.clamp(math.floor(V._fpsFrames / math.max(V._fpsElapsed, 1/240) + 0.5), 0, 999)
-			V._fpsFrames, V._fpsElapsed = 0, 0
-			if V._pingElapsed >= 1 then
-				V._pingElapsed = 0
-				V.miniStats.ping = _readPing()
+	local _statsLoopEnabled = options.watermarkStats ~= false or V.floatingMiniAllowed == true
+	if _statsLoopEnabled then
+		track(RunService.RenderStepped:Connect(function(dt)
+			if _destroyed then return end
+			V._fpsFrames = V._fpsFrames + 1
+			V._fpsElapsed = V._fpsElapsed + dt
+			V._pingElapsed = V._pingElapsed + dt
+			if V._fpsElapsed >= 0.5 then
+				V.miniStats.fps = math.clamp(math.floor(V._fpsFrames / math.max(V._fpsElapsed, 1/240) + 0.5), 0, 999)
+				V._fpsFrames, V._fpsElapsed = 0, 0
+				if V._pingElapsed >= 1 then
+					V._pingElapsed = 0
+					V.miniStats.ping = _readPing()
+				end
+				_setMiniText()
 			end
-			_setMiniText()
-		end
-	end))
+		end))
+	end
 
 	local function _styleMiniHUD()
 		if not V.miniFrame then return end
@@ -6237,38 +6247,83 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end))
 
 	-- ── Window drag ─────────────────────────────────────────────────────────
-	-- InputBegan on Topbar starts drag; move/end tracked globally so fast
-	-- mouse movement outside the topbar doesn't drop the drag.
-	V.dragging,V.dragStart,V.startPos = nil, nil, nil
-	Topbar.InputBegan:Connect(function(i)
-		if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
-			local relX = i.Position.X - Main.AbsolutePosition.X
-			if relX <= 40 or relX >= Main.AbsoluteSize.X - 92 then return end
-			V.dragging  = true
-			V.dragStart = i.Position
-			V.startPos  = MainWrap.Position
+	-- Normalize scale-based positions to absolute pixel offsets before dragging.
+	-- This prevents the first drag from jumping toward the top-left.
+	V.dragging = false
+	V.dragStart = nil
+	V.startPos = nil
+	V.dragInput = nil
+
+	track(Topbar.InputBegan:Connect(function(input)
+		local inputType = input.UserInputType
+		if inputType ~= Enum.UserInputType.MouseButton1 and inputType ~= Enum.UserInputType.Touch then
+			return
 		end
-	end)
-	track(UIS.InputChanged:Connect(function(i)
-		if not V.dragging then return end
-		if i.UserInputType~=Enum.UserInputType.MouseMovement and i.UserInputType~=Enum.UserInputType.Touch then return end
-		local d   = (i.Position - V.dragStart) * getDragOutMultiplier()
-		local newX = V.startPos.X.Offset + d.X
-		local newY = V.startPos.Y.Offset + d.Y
-		if _dragBordersEnabled() then
-			local vps = workspace.CurrentCamera.ViewportSize
-			local sw, fullH = getScaledWindowSize()
-			local sh  = V.minimized and 34 or fullH
-			newX = math.clamp(newX, sw/2, vps.X - sw/2)
-			newY = math.clamp(newY, sh/2, vps.Y - sh/2)
-		end
-		MainWrap.Position = UDim2.new(0,newX,0,newY)
-		_runtimeRoot.windowPosition = MainWrap.Position
+
+		local relX = input.Position.X - Main.AbsolutePosition.X
+		if relX <= 40 or relX >= Main.AbsoluteSize.X - 92 then return end
+
+		local current = _offsetPosition(
+			MainWrap.Position,
+			MainWrap.AbsolutePosition.X + MainWrap.AbsoluteSize.X * MainWrap.AnchorPoint.X,
+			MainWrap.AbsolutePosition.Y + MainWrap.AbsoluteSize.Y * MainWrap.AnchorPoint.Y
+		)
+
+		-- Convert once at drag start. All later calculations stay in one coordinate system.
+		MainWrap.Position = current
+		_runtimeRoot.windowPosition = current
+
+		V.dragging = true
+		V.dragInput = inputType == Enum.UserInputType.Touch and input or nil
+		V.dragStart = Vector2.new(input.Position.X, input.Position.Y)
+		V.startPos = current
 	end))
-	track(UIS.InputEnded:Connect(function(i)
-		if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+
+	track(UIS.InputChanged:Connect(function(input)
+		if not V.dragging or not V.dragStart or not V.startPos then return end
+
+		local inputType = input.UserInputType
+		if inputType ~= Enum.UserInputType.MouseMovement and inputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		if inputType == Enum.UserInputType.Touch and V.dragInput and input ~= V.dragInput then
+			return
+		end
+
+		local delta = Vector2.new(input.Position.X, input.Position.Y) - V.dragStart
+		delta = delta * getDragOutMultiplier()
+
+		local newX = V.startPos.X.Offset + delta.X
+		local newY = V.startPos.Y.Offset + delta.Y
+
+		if _dragBordersEnabled() then
+			local camera = workspace.CurrentCamera
+			local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+			local scaledW, fullH = getScaledWindowSize()
+			local scaledH = V.minimized and 34 or fullH
+			newX = math.clamp(newX, scaledW / 2, viewport.X - scaledW / 2)
+			newY = math.clamp(newY, scaledH / 2, viewport.Y - scaledH / 2)
+		end
+
+		local position = UDim2.new(0, math.floor(newX + 0.5), 0, math.floor(newY + 0.5))
+		MainWrap.Position = position
+		_runtimeRoot.windowPosition = position
+	end))
+
+	track(UIS.InputEnded:Connect(function(input)
+		local inputType = input.UserInputType
+		local endsMouse = inputType == Enum.UserInputType.MouseButton1
+		local endsTouch = inputType == Enum.UserInputType.Touch
+			and (V.dragInput == nil or input == V.dragInput)
+
+		if endsMouse or endsTouch then
 			V.dragging = false
-			if MainWrap and MainWrap.Parent then _runtimeRoot.windowPosition = MainWrap.Position end
+			V.dragInput = nil
+			V.dragStart = nil
+			V.startPos = nil
+			if MainWrap and MainWrap.Parent then
+				_runtimeRoot.windowPosition = MainWrap.Position
+			end
 		end
 	end))
 
@@ -6292,19 +6347,22 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 	V.resizeDragging = false
 	V.resizeDragStart, V.resizeStartSize = nil, nil
-	resizeHandle.InputBegan:Connect(function(i)
+	V.resizeInput = nil
+	track(resizeHandle.InputBegan:Connect(function(i)
 		if V.minimized then return end  -- no resize while minimized
 		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
 			V.resizeDragging = true
-			V.resizeDragStart = i.Position
+			V.resizeInput = i.UserInputType == Enum.UserInputType.Touch and i or nil
+			V.resizeDragStart = Vector2.new(i.Position.X, i.Position.Y)
 			V.resizeStartSize = Vector2.new(winW, winH)  -- use logical size, not AbsoluteSize
 		end
-	end)
+	end))
 
 	track(UIS.InputChanged:Connect(function(i)
 		if not V.resizeDragging then return end
 		if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
-		local delta = i.Position - V.resizeDragStart
+		if i.UserInputType == Enum.UserInputType.Touch and V.resizeInput and i ~= V.resizeInput then return end
+		local delta = Vector2.new(i.Position.X, i.Position.Y) - V.resizeDragStart
 		WIN_MAX_W, WIN_MAX_H = getViewportLimit()
 		local newW  = math.clamp(V.resizeStartSize.X + delta.X, WIN_MIN_W, WIN_MAX_W)
 		local newH  = math.clamp(V.resizeStartSize.Y + delta.Y, WIN_MIN_H, WIN_MAX_H)
@@ -6314,9 +6372,14 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end))
 
 	track(UIS.InputEnded:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		local inputType = i.UserInputType
+		local endsMouse = inputType == Enum.UserInputType.MouseButton1
+		local endsTouch = inputType == Enum.UserInputType.Touch
+			and (V.resizeInput == nil or i == V.resizeInput)
+		if endsMouse or endsTouch then
 			if V.resizeDragging then
 				V.resizeDragging = false
+				V.resizeInput = nil
 				GUI:MarkConfigDirty()  -- mark dirty after resize
 			end
 		end
@@ -12977,5 +13040,10 @@ function Library:SelfTest()
 		runtime = Library:GetRuntimeCounts(),
 	}
 end
+
+-- Cache the parsed library table for lightweight loaders. A cached loader can
+-- avoid downloading and compiling the full source after character-script reruns.
+_runtimeRoot.libraryCache = Library
+_runtimeRoot.libraryVersion = Library.Version
 
 return Library
