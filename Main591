@@ -18,7 +18,7 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.90-register-safe-number-display"
+Library.Version = "5.92-full-register-syntax-fix"
 
 -- ══════════════════════════════════════════════════════════════════════
 -- RUNTIME GUARD
@@ -12549,7 +12549,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 
 	-- ══════════════════════════════════════════════════════════════════════
-	(function()
+	-- Semicolon separates this IIFE from the preceding task.defer(...) call.
+	;(function()
 	-- v5.78 Function Support Pack — window utilities
 	-- Status registry, safe task system, and cleanup helpers. Config logic is
 	-- intentionally untouched.
