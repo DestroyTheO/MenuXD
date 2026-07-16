@@ -12549,6 +12549,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 
 	-- ══════════════════════════════════════════════════════════════════════
+	(function()
 	-- v5.78 Function Support Pack — window utilities
 	-- Status registry, safe task system, and cleanup helpers. Config logic is
 	-- intentionally untouched.
@@ -12781,6 +12782,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end
 	GUI.CreateMaid = GUI.NewMaid
 	GUI.Janitor = GUI.NewMaid
+	end)()
 
 	return GUI
 end -- Library:new
