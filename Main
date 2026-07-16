@@ -18,7 +18,7 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.87-persistent-singleton-fix"
+Library.Version = "5.88-position-persistence"
 
 -- ══════════════════════════════════════════════════════════════════════
 -- RUNTIME GUARD
@@ -2881,11 +2881,18 @@ function Library:new(options)
 	-- Reconnect active controls after respawn/death so character-bound features keep working.
 	track(LP.CharacterAdded:Connect(function(character)
 		_runtimeRoot.activeCharacter = character
+		local preservedWindowPosition = (MainWrap and MainWrap.Parent and MainWrap.Position) or _runtimeRoot.windowPosition
+		if preservedWindowPosition and typeof(preservedWindowPosition) == "UDim2" then
+			_runtimeRoot.windowPosition = preservedWindowPosition
+		end
 		_runtimeRoot.respawnGuardUntil = os.clock() + 5
 		task.spawn(function()
 			if _destroyed or GUI._activityStopped then return end
 			pcall(function() character:WaitForChild("Humanoid", 5) end)
 			pcall(function() character:WaitForChild("HumanoidRootPart", 5) end)
+			if preservedWindowPosition and MainWrap and MainWrap.Parent then
+				MainWrap.Position = preservedWindowPosition
+			end
 			_scheduleReconnect("CharacterAdded")
 		end)
 	end))
@@ -3368,7 +3375,7 @@ local _defaultWinW, _defaultWinH = winW, winH
 	Main.BackgroundColor3=Library.Theme.Background
 	Main.AnchorPoint=Vector2.new(0.5,0.5)
 	Main.Size=UDim2.new(0,winW,0,0)
-	Main.Position=UDim2.fromScale(0.5,0.5)
+	Main.Position = (_runtimeRoot.windowPosition and typeof(_runtimeRoot.windowPosition) == "UDim2") and _runtimeRoot.windowPosition or UDim2.fromScale(0.5,0.5)
 	Main.ClipsDescendants=true; Main.Visible=false
 	corner(Main,8)
 	GUI._main=Main
@@ -4238,7 +4245,7 @@ local _defaultWinW, _defaultWinH = winW, winH
 	end
 
 	local _responsiveScaleEnabled = true -- 5.12+: responsive scale is always enabled by default
-	local _resizeSnapEnabled = options.resizeSnap ~= false
+	local _resizeSnapEnabled = options.resizeSnap == true
 	local _resizeSnapMode = tostring(options.resizeSnapMode or "center"):lower()
 	local _lastViewportSize = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
 
@@ -4281,10 +4288,10 @@ local _defaultWinW, _defaultWinH = winW, winH
 			MainWrap.Position = UDim2.new(0, x, 0, y)
 		end
 	end
-	task.defer(function() _applyResponsiveScale(true) end)
+	task.defer(function() _applyResponsiveScale(false) end)
 	pcall(function()
 		track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-			_applyResponsiveScale(true)
+			_applyResponsiveScale(false)
 			pcall(function() GUI:MarkConfigDirty() end)
 		end))
 	end)
@@ -4310,10 +4317,13 @@ local _defaultWinW, _defaultWinH = winW, winH
 			-- After open tween, convert scale position to pixel offset
 			-- AbsolutePosition with AnchorPoint(0.5,0.5) gives top-left corner
 			-- The center point = top-left + half size
-			local vps = workspace.CurrentCamera.ViewportSize
-			local cx  = vps.X * 0.5  -- window starts centered
-			local cy  = vps.Y * 0.5
-			MainWrap.Position = UDim2.new(0, cx, 0, cy)
+			local saved = _runtimeRoot.windowPosition
+			if saved and typeof(saved) == "UDim2" then
+				MainWrap.Position = saved
+			else
+				local vps = workspace.CurrentCamera.ViewportSize
+				MainWrap.Position = UDim2.new(0, vps.X * 0.5, 0, vps.Y * 0.5)
+			end
 		end)
 		_doTypewriter = true
 	end
@@ -6218,10 +6228,12 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			newY = math.clamp(newY, sh/2, vps.Y - sh/2)
 		end
 		MainWrap.Position = UDim2.new(0,newX,0,newY)
+		_runtimeRoot.windowPosition = MainWrap.Position
 	end))
 	track(UIS.InputEnded:Connect(function(i)
 		if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
 			V.dragging = false
+			if MainWrap and MainWrap.Parent then _runtimeRoot.windowPosition = MainWrap.Position end
 		end
 	end))
 
@@ -10877,12 +10889,12 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		end
 		local sw, sh = applyWindowScale(false, V.minimized and 34 or nil)
 		MainWrap.Size = UDim2.new(0, sw, 0, V.minimized and 34 or sh)
-		task.defer(function() if not _destroyed then applyWindowScale(false, V.minimized and 34 or nil); _applyResponsiveScale(true) end end)
+		task.defer(function() if not _destroyed then applyWindowScale(false, V.minimized and 34 or nil); _applyResponsiveScale(false) end end)
 		if GUI._cfgSyncCallbacks.scale then pcall(GUI._cfgSyncCallbacks.scale, currentScale) end
 		-- 5.19+: responsive scaling is on by default but can be toggled off in Settings.
 		_responsiveScaleEnabled = data.responsiveScale ~= false
 		if GUI._cfgSyncCallbacks.responsiveScale then pcall(GUI._cfgSyncCallbacks.responsiveScale, _responsiveScaleEnabled) end
-		_resizeSnapEnabled = data.resizeSnap ~= false
+		_resizeSnapEnabled = data.resizeSnap == true
 		_resizeSnapMode = tostring(data.resizeSnapMode or _resizeSnapMode or "center"):lower()
 		if GUI._cfgSyncCallbacks.resizeSnap then pcall(GUI._cfgSyncCallbacks.resizeSnap, _resizeSnapEnabled) end
 		if data.dragBounds ~= nil then
