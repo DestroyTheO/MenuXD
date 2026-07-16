@@ -18,7 +18,7 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.93-respawn-position-lock"
+Library.Version = "5.94-modular-config-theme-engine"
 
 -- ══════════════════════════════════════════════════════════════════════
 -- RUNTIME GUARD
@@ -2693,6 +2693,8 @@ function Library:new(options)
 	_runtimeRoot.respawnGuardUntil = 0
 	if _ttConn then track(_ttConn) end
 
+	-- Register-safe module boundary: visual engine, controls, config, and utilities.
+	;(function()
 	-- v5.59 Font scale engine ----------------------------------------------------
 	-- Keeps original TextSize as an attribute so the slider can move up/down cleanly
 	-- without compounding sizes every time it is dragged.
@@ -9628,6 +9630,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		return Tab
 	end -- GUI:CreateTab
 
+	-- Register-safe module boundary: config, theme, and settings engine.
+	;(function()
 	-- ══════════════════════════════════════════════════════════════════════
 	-- Config save / load
 	-- ══════════════════════════════════════════════════════════════════════
@@ -12579,10 +12583,11 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		_safeLoadSetLabel("Themes and Settings ready.")
 		_safeLoadState.uiReady = true
 	end) -- task.defer (Settings)
+	end)() -- config/theme/settings module
 
 
 	-- ══════════════════════════════════════════════════════════════════════
-	-- Semicolon separates this IIFE from the preceding task.defer(...) call.
+	-- Semicolon separates this IIFE from the preceding module call.
 	;(function()
 	-- v5.78 Function Support Pack — window utilities
 	-- Status registry, safe task system, and cleanup helpers. Config logic is
@@ -12816,7 +12821,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end
 	GUI.CreateMaid = GUI.NewMaid
 	GUI.Janitor = GUI.NewMaid
-	end)()
+	end)() -- status/task utility module
+	end)() -- visual/control engine module
 
 	return GUI
 end -- Library:new
