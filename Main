@@ -18,7 +18,7 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.92-full-register-syntax-fix"
+Library.Version = "5.93-respawn-position-lock"
 
 -- ══════════════════════════════════════════════════════════════════════
 -- RUNTIME GUARD
@@ -2165,9 +2165,10 @@ function Library:new(options)
 		floatingMiniUI  = false,   -- legacy separate top-right HUD; off by default
 		miniUI          = nil,     -- alias: true only if you intentionally want the old top-right HUD
 		miniTitle       = "VENTURA",
-		responsiveScale = true,    -- auto-fit/rescale when the Roblox window/screen size changes
-		resizeSnap      = true,    -- when the Roblox window changes size, snap UI back to visible spots
-		resizeSnapMode  = "center", -- main window snap mode: "center" or "corner"
+		responsiveScale = true,    -- resize the window when the viewport changes without moving it
+		lockWindowPosition = true, -- preserve the dragged position across respawn/camera/config changes
+		resizeSnap      = false,   -- opt-in only; ignored while lockWindowPosition is enabled
+		resizeSnapMode  = "center", -- legacy option retained for compatibility
 		looseDragBounds = false,   -- legacy option; drag borders are removed in 5.8
 		dragBounds      = false,   -- false = no screen-edge clamping at all
 		offscreenGrip   = 0,       -- legacy option kept for compatibility
@@ -2885,14 +2886,25 @@ function Library:new(options)
 		if preservedWindowPosition and typeof(preservedWindowPosition) == "UDim2" then
 			_runtimeRoot.windowPosition = preservedWindowPosition
 		end
-		_runtimeRoot.respawnGuardUntil = os.clock() + 5
+		_runtimeRoot.respawnGuardUntil = os.clock() + 10
+		local function restoreRespawnPosition()
+			if _destroyed or not MainWrap or not MainWrap.Parent then return end
+			local saved = (_runtimeRoot.windowPosition and typeof(_runtimeRoot.windowPosition) == "UDim2")
+				and _runtimeRoot.windowPosition or preservedWindowPosition
+			if saved and typeof(saved) == "UDim2" then
+				MainWrap.Position = saved
+				_runtimeRoot.windowPosition = saved
+			end
+		end
+		restoreRespawnPosition()
+		task.defer(restoreRespawnPosition)
+		task.delay(0.25, restoreRespawnPosition)
+		task.delay(1.00, restoreRespawnPosition)
 		task.spawn(function()
 			if _destroyed or GUI._activityStopped then return end
 			pcall(function() character:WaitForChild("Humanoid", 5) end)
 			pcall(function() character:WaitForChild("HumanoidRootPart", 5) end)
-			if preservedWindowPosition and MainWrap and MainWrap.Parent then
-				MainWrap.Position = preservedWindowPosition
-			end
+			restoreRespawnPosition()
 			_scheduleReconnect("CharacterAdded")
 		end)
 	end))
@@ -3376,10 +3388,16 @@ local _defaultWinW, _defaultWinH = winW, winH
 	Main.AnchorPoint=Vector2.new(0.5,0.5)
 	Main.Size=UDim2.new(0,winW,0,0)
 	Main.Position = (_runtimeRoot.windowPosition and typeof(_runtimeRoot.windowPosition) == "UDim2") and _runtimeRoot.windowPosition or UDim2.fromScale(0.5,0.5)
+	_runtimeRoot.windowPosition = Main.Position
 	Main.ClipsDescendants=true; Main.Visible=false
 	corner(Main,8)
 	GUI._main=Main
 	local MainWrap=Main -- alias so existing MainWrap refs still work
+	track(MainWrap:GetPropertyChangedSignal("Position"):Connect(function()
+		if not _destroyed and MainWrap and MainWrap.Parent then
+			_runtimeRoot.windowPosition = MainWrap.Position
+		end
+	end))
 
 	-- Animated Space theme background -----------------------------------------
 	V._spaceLayer, V._spaceConn = nil, nil
@@ -4244,8 +4262,9 @@ local _defaultWinW, _defaultWinH = winW, winH
 		return sw, sh
 	end
 
-	local _responsiveScaleEnabled = true -- 5.12+: responsive scale is always enabled by default
-	local _resizeSnapEnabled = options.resizeSnap == true
+	local _responsiveScaleEnabled = options.responsiveScale ~= false
+	local _lockWindowPosition = options.lockWindowPosition ~= false
+	local _resizeSnapEnabled = (not _lockWindowPosition) and options.resizeSnap == true
 	local _resizeSnapMode = tostring(options.resizeSnapMode or "center"):lower()
 	local _lastViewportSize = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
 
@@ -4272,20 +4291,25 @@ local _defaultWinW, _defaultWinH = winW, winH
 
 	local function _applyResponsiveScale(forceSnap)
 		if not _responsiveScaleEnabled or _destroyed or not MainWrap or not MainWrap.Parent then return end
+		local preserved = (_runtimeRoot.windowPosition and typeof(_runtimeRoot.windowPosition) == "UDim2")
+			and _runtimeRoot.windowPosition or MainWrap.Position
+
 		WIN_MAX_W, WIN_MAX_H = getViewportLimit()
-		local sw, sh = applyWindowScale(false, V.minimized and 34 or nil)
+		applyWindowScale(false, V.minimized and 34 or nil)
+
 		local cam = workspace.CurrentCamera
 		local vps = cam and cam.ViewportSize or Vector2.new(1280, 720)
 		local viewportChanged = (math.abs(vps.X - _lastViewportSize.X) > 1 or math.abs(vps.Y - _lastViewportSize.Y) > 1)
 		_lastViewportSize = vps
 
-		if _resizeSnapEnabled and (forceSnap == true or viewportChanged) then
-			_snapMainToViewport(sw, sh)
+		if _lockWindowPosition then
+			MainWrap.Position = preserved
+			_runtimeRoot.windowPosition = preserved
+		elseif _resizeSnapEnabled and (forceSnap == true or viewportChanged) then
+			_snapMainToViewport(select(1, getScaledWindowSize()), select(2, getScaledWindowSize()))
 			_snapSmallUIsToViewport()
 		else
-			local x = MainWrap.Position.X.Offset ~= 0 and MainWrap.Position.X.Offset or (vps.X * 0.5)
-			local y = MainWrap.Position.Y.Offset ~= 0 and MainWrap.Position.Y.Offset or (vps.Y * 0.5)
-			MainWrap.Position = UDim2.new(0, x, 0, y)
+			_runtimeRoot.windowPosition = MainWrap.Position
 		end
 	end
 	task.defer(function() _applyResponsiveScale(false) end)
@@ -4320,10 +4344,8 @@ local _defaultWinW, _defaultWinH = winW, winH
 			local saved = _runtimeRoot.windowPosition
 			if saved and typeof(saved) == "UDim2" then
 				MainWrap.Position = saved
-			else
-				local vps = workspace.CurrentCamera.ViewportSize
-				MainWrap.Position = UDim2.new(0, vps.X * 0.5, 0, vps.Y * 0.5)
 			end
+			_runtimeRoot.windowPosition = MainWrap.Position
 		end)
 		_doTypewriter = true
 	end
@@ -6010,10 +6032,21 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end
 	function GUI:GetResponsiveScale() return _responsiveScaleEnabled == true end
 	function GUI:SetResizeSnapEnabled(state)
-		_resizeSnapEnabled = state ~= false
+		_resizeSnapEnabled = (not _lockWindowPosition) and state ~= false
 		if _resizeSnapEnabled then _applyResponsiveScale(true) end
 		pcall(function() GUI:MarkConfigDirty() end)
 		return _resizeSnapEnabled
+	end
+	function GUI:SetWindowPositionLock(state)
+		_lockWindowPosition = state ~= false
+		if _lockWindowPosition then
+			_resizeSnapEnabled = false
+			_runtimeRoot.windowPosition = MainWrap.Position
+		end
+		return _lockWindowPosition
+	end
+	function GUI:GetWindowPositionLock()
+		return _lockWindowPosition == true
 	end
 	function GUI:GetResizeSnapEnabled() return _resizeSnapEnabled == true end
 	function GUI:SetResizeSnapMode(mode)
@@ -10754,7 +10787,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			minimizeBubbleX = V.minimizeBubble and V.minimizeBubble.Position.X.Offset or 18,
 			minimizeBubbleY = V.minimizeBubble and V.minimizeBubble.Position.Y.Offset or 78,
 			responsiveScale = _responsiveScaleEnabled == true,
-			resizeSnap = _resizeSnapEnabled == true,
+			resizeSnap = (not _lockWindowPosition) and _resizeSnapEnabled == true,
 			resizeSnapMode = _resizeSnapMode,
 			dragBounds = options.dragBounds == true,
 		}
@@ -10801,7 +10834,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			watermarkScaleX = 1,
 			watermarkScaleY = 0,
 			responsiveScale = true,
-			resizeSnap = true,
+			resizeSnap = false,
 			resizeSnapMode = "center",
 			dragBounds = false,
 		}
@@ -11036,7 +11069,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		-- 5.19+: responsive scaling is on by default but can be toggled off in Settings.
 		_responsiveScaleEnabled = data.responsiveScale ~= false
 		if GUI._cfgSyncCallbacks.responsiveScale then pcall(GUI._cfgSyncCallbacks.responsiveScale, _responsiveScaleEnabled) end
-		_resizeSnapEnabled = data.resizeSnap == true
+		_resizeSnapEnabled = (not _lockWindowPosition) and data.resizeSnap == true
 		_resizeSnapMode = tostring(data.resizeSnapMode or _resizeSnapMode or "center"):lower()
 		if GUI._cfgSyncCallbacks.resizeSnap then pcall(GUI._cfgSyncCallbacks.resizeSnap, _resizeSnapEnabled) end
 		if data.dragBounds ~= nil then
@@ -11188,7 +11221,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			minimizeBubbleX = V.minimizeBubble and V.minimizeBubble.Position.X.Offset or 18,
 			minimizeBubbleY = V.minimizeBubble and V.minimizeBubble.Position.Y.Offset or 78,
 			responsiveScale = _responsiveScaleEnabled == true,
-			resizeSnap = _resizeSnapEnabled == true,
+			resizeSnap = (not _lockWindowPosition) and _resizeSnapEnabled == true,
 			resizeSnapMode = _resizeSnapMode,
 			dragBounds = options.dragBounds == true,
 		}
@@ -11485,7 +11518,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			watermarkScaleX = 1,
 			watermarkScaleY = 0,
 			responsiveScale = true,
-			resizeSnap = true,
+			resizeSnap = false,
 			resizeSnapMode = "center",
 			dragBounds = false,
 		}
