@@ -18,7 +18,7 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.86-respawn-singleton-fix"
+Library.Version = "5.87-persistent-singleton-fix"
 
 -- ══════════════════════════════════════════════════════════════════════
 -- RUNTIME GUARD
@@ -2152,6 +2152,8 @@ function Library:new(options)
 		statusBarWidth     = nil,
 		statusBarHeight    = nil,
 		destroyOnRespawn= false,
+		forceRebuild     = false, -- explicitly destroy/recreate an existing Ventura window
+		reuseExisting    = true,  -- persistent singleton; prevents respawn/script reruns rebuilding the UI
 		reconnectOnRespawn = true,
 		reconnectDelay   = 0.85,
 		keyEnabled      = false,
@@ -2191,15 +2193,22 @@ function Library:new(options)
 	end
 	if options.accent then Library.Theme.Accent=options.accent end
 
-	-- Respawn singleton guard: ResetOnSpawn=false keeps the ScreenGui alive, but
-	-- scripts placed in StarterCharacterScripts execute again for the new character.
-	-- Detect that exact case and absorb the duplicate construction pass. Manual
-	-- re-execution during the same character still replaces the old window normally.
+	-- Persistent singleton guard. ResetOnSpawn=false preserves the ScreenGui, but
+	-- StarterCharacterScripts / auto-execute loaders can run the complete script again
+	-- at any time after respawn. A time window or Character comparison is therefore
+	-- unreliable. While the current Ventura ScreenGui is alive, every later builder
+	-- pass is absorbed unless forceRebuild=true is explicitly requested.
 	local _activeWindow = _runtimeRoot.activeWindow
 	local _activeScreenGui = _runtimeRoot.activeScreenGui
-	local _characterChanged = _runtimeRoot.activeCharacter ~= nil and _runtimeRoot.activeCharacter ~= LP.Character
-	local _insideRespawnGuard = os.clock() <= (tonumber(_runtimeRoot.respawnGuardUntil) or 0)
-	if _activeWindow and _activeScreenGui and _activeScreenGui.Parent and (_characterChanged or _insideRespawnGuard) then
+	local _activeAlive = false
+	pcall(function()
+		_activeAlive = _activeWindow ~= nil
+			and _activeScreenGui ~= nil
+			and _activeScreenGui.Parent ~= nil
+			and _activeScreenGui:IsA("ScreenGui")
+	end)
+
+	if _activeAlive and options.reuseExisting ~= false and options.forceRebuild ~= true then
 		_runtimeRoot.activeCharacter = LP.Character
 		return _makeRespawnBuilderSink(_activeWindow)
 	end
