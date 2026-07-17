@@ -18,7 +18,7 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.95-drag-respawn-performance-fix"
+Library.Version = "5.96-stability-core"
 
 -- ══════════════════════════════════════════════════════════════════════
 -- RUNTIME GUARD
@@ -2181,6 +2181,14 @@ function Library:new(options)
 		themeAccent      = true,  -- v5.41: changing themes also changes accent color by default
 		followThemeAccent= true,  -- aliases kept for older scripts
 		useThemeAccent   = true,
+		performanceMode  = "auto", -- auto, balanced, low, or off
+		performanceLowFPS = 42,
+		performanceRecoverFPS = 54,
+		slowCallbackMs   = 50,
+		callbackReentryGuard = true,
+		lazyTabs         = false, -- opt-in: use Tab:BuildLazy(function(Tab) ... end)
+		configSchemaVersion = 2,
+		normalizedPosition = true,
 	}, options)
 
 	if options.theme and Library.Themes and Library.Themes[options.theme] then
@@ -2248,7 +2256,7 @@ function Library:new(options)
 		return UDim2.new(0, x, 0, y)
 	end
 
-	local GUI = {CurrentTab=nil, _tabs={}, _open=true, _accentObjects={}, _themeObjects={}, _themeListeners={}, _keybindWidgets={}, _activeKeybind=nil, _configControls={}, _toggleControls={}, _reconnectControls={}, _reconnectCallbacks={}, _loadedConfigData=nil, _configApplying=false, _destroyCallbacks={}, _cleanupCallbacks={}, _trackedProperties={}, _trackedHumanoidProperties={}, _trackedInstances={}, _activityStopped=false, _closing=false, _reconnectEnabled=(options.reconnectOnRespawn == true), _reconnectDelay=tonumber(options.reconnectDelay) or 0.85, _respawnToken=0}
+	local GUI = {CurrentTab=nil, _tabs={}, _open=true, _accentObjects={}, _themeObjects={}, _themeListeners={}, _keybindWidgets={}, _activeKeybind=nil, _configControls={}, _controls={}, _toggleControls={}, _reconnectControls={}, _reconnectCallbacks={}, _loadedConfigData=nil, _configApplying=false, _destroyCallbacks={}, _cleanupCallbacks={}, _trackedProperties={}, _trackedHumanoidProperties={}, _trackedInstances={}, _ownerBuckets={}, _callbackStats={}, _callbackActive={}, _callbackHistory={}, _configMigrations={}, _values={}, _activityStopped=false, _closing=false, _reconnectEnabled=(options.reconnectOnRespawn == true), _reconnectDelay=tonumber(options.reconnectDelay) or 0.85, _respawnToken=0}
 
 	-- v5.77 Safe / Slow Load ----------------------------------------------------
 	-- Heavy theme/settings pages can be built in small chunks. This keeps the UI
@@ -2483,6 +2491,9 @@ function Library:new(options)
 			if okDefault then control._configDefaultValue = defaultValue end
 		end
 		GUI._configControls[id] = control
+		GUI._controls[id] = control
+		control._controlId = id
+		function control:GetId() return self._controlId end
 		local data = GUI._loadedConfigData
 		if data then
 			local raw = data[_cfgKey(id)]
@@ -2539,7 +2550,7 @@ function Library:new(options)
 		-- Let scripts rebuild character-bound effects/connections first.
 		for _, callback in ipairs(GUI._reconnectCallbacks or {}) do
 			if type(callback) == "function" then
-				pcall(callback, character, humanoid, reason or "manual")
+				GUI:_invokeCallback("character-reconnect", callback, character, humanoid, reason or "manual")
 			end
 		end
 
@@ -2577,7 +2588,401 @@ function Library:new(options)
 		end)
 	end
 
-	local function track(c) if c then table.insert(_connections,c); _runtimeTrackConnection(c) end; return c end
+	local function track(c)
+		if c then
+			table.insert(_connections, c)
+			_runtimeTrackConnection(c)
+			GUI._ownerBuckets.window = GUI._ownerBuckets.window or {connections={}, instances={}, cleanups={}}
+			table.insert(GUI._ownerBuckets.window.connections, c)
+		end
+		return c
+	end
+
+	-- ══════════════════════════════════════════════════════════════════════
+	-- v5.96 STABILITY CORE
+	-- Central ownership, shared input routing, callback diagnostics,
+	-- reactive values, performance controls, and config migrations.
+	-- ══════════════════════════════════════════════════════════════════════
+	;(function()
+		local function ownerName(owner)
+			if type(owner) == "table" and owner.Name then return tostring(owner.Name) end
+			local name = tostring(owner or "window")
+			return name ~= "" and name or "window"
+		end
+
+		local function bucket(owner)
+			local name = ownerName(owner)
+			local value = GUI._ownerBuckets[name]
+			if not value then
+				value = {Name=name, connections={}, instances={}, cleanups={}, released=false}
+				GUI._ownerBuckets[name] = value
+			end
+			return value
+		end
+
+		function GUI:CreateOwner(name)
+			local value = bucket(name)
+			value.released = false
+			return value
+		end
+
+		function GUI:TrackOwnedConnection(owner, connection)
+			if not connection then return connection end
+			table.insert(bucket(owner).connections, connection)
+			table.insert(_connections, connection)
+			_runtimeTrackConnection(connection)
+			return connection
+		end
+
+		function GUI:TrackOwnedInstance(owner, instance)
+			if not instance then return instance end
+			table.insert(bucket(owner).instances, instance)
+			table.insert(GUI._trackedInstances, instance)
+			_runtimeTrackInstance(instance)
+			return instance
+		end
+
+		function GUI:RegisterOwnedCleanup(owner, callback, label)
+			if type(callback) ~= "function" then return nil end
+			local record = {callback=callback, label=tostring(label or "cleanup")}
+			table.insert(bucket(owner).cleanups, record)
+			return callback
+		end
+
+		function GUI:ReleaseOwner(owner, reason)
+			local value = bucket(owner)
+			if value.released then return true end
+			value.released = true
+			for i = #value.cleanups, 1, -1 do
+				local record = value.cleanups[i]
+				if record and type(record.callback) == "function" then
+					pcall(record.callback, reason or "release")
+				end
+				value.cleanups[i] = nil
+			end
+			for i = #value.connections, 1, -1 do
+				local connection = value.connections[i]
+				pcall(function()
+					if connection and type(connection.Disconnect) == "function" then connection:Disconnect() end
+				end)
+				value.connections[i] = nil
+			end
+			for i = #value.instances, 1, -1 do
+				local instance = value.instances[i]
+				pcall(function()
+					if instance and instance.Parent then instance:Destroy() end
+				end)
+				value.instances[i] = nil
+			end
+			return true
+		end
+
+		function GUI:GetOwnerStats()
+			local result = {}
+			for name, value in pairs(GUI._ownerBuckets) do
+				local connections, instances = 0, 0
+				for _, connection in ipairs(value.connections or {}) do
+					if connection and connection.Connected ~= false then connections = connections + 1 end
+				end
+				for _, instance in ipairs(value.instances or {}) do
+					if instance and instance.Parent then instances = instances + 1 end
+				end
+				result[name] = {
+					connections=connections,
+					instances=instances,
+					cleanups=#(value.cleanups or {}),
+					released=value.released == true,
+				}
+			end
+			return result
+		end
+
+		-- Callback protection preserves pcall-compatible return values.
+		function GUI:_invokeCallback(label, callback, ...)
+			if type(callback) ~= "function" then return false, "callback is not a function" end
+			local guard = options.callbackReentryGuard ~= false
+			if guard and GUI._callbackActive[callback] then
+				GUI._callbackStats.reentryBlocked = (GUI._callbackStats.reentryBlocked or 0) + 1
+				return false, "callback re-entry blocked"
+			end
+
+			GUI._callbackActive[callback] = true
+			local started = os.clock()
+			local packed = table.pack(pcall(callback, ...))
+			local elapsedMs = (os.clock() - started) * 1000
+			GUI._callbackActive[callback] = nil
+
+			local name = tostring(label or "callback")
+			local stat = GUI._callbackStats[name] or {calls=0, errors=0, totalMs=0, maxMs=0}
+			stat.calls = stat.calls + 1
+			stat.totalMs = stat.totalMs + elapsedMs
+			stat.maxMs = math.max(stat.maxMs, elapsedMs)
+			stat.lastMs = elapsedMs
+			if not packed[1] then
+				stat.errors = stat.errors + 1
+				stat.lastError = tostring(packed[2])
+			end
+			GUI._callbackStats[name] = stat
+
+			table.insert(GUI._callbackHistory, 1, {
+				label=name,
+				ok=packed[1] == true,
+				ms=elapsedMs,
+				error=packed[1] and nil or tostring(packed[2]),
+				at=os.clock(),
+			})
+			while #GUI._callbackHistory > 100 do table.remove(GUI._callbackHistory) end
+
+			if elapsedMs >= math.max(1, tonumber(options.slowCallbackMs) or 50) then
+				warn(string.format("[VenturaUI] Slow callback: %s took %.1fms", name, elapsedMs))
+			end
+			return table.unpack(packed, 1, packed.n)
+		end
+
+		function GUI:ProtectCallback(label, callback)
+			return function(...)
+				return GUI:_invokeCallback(label, callback, ...)
+			end
+		end
+
+		function GUI:GetCallbackDiagnostics()
+			local copy = {}
+			for name, stat in pairs(GUI._callbackStats) do
+				copy[name] = {
+					calls=stat.calls,
+					errors=stat.errors,
+					totalMs=stat.totalMs,
+					maxMs=stat.maxMs,
+					lastMs=stat.lastMs,
+					lastError=stat.lastError,
+				}
+			end
+			copy.reentryBlocked = GUI._callbackStats.reentryBlocked or 0
+			copy.history = table.clone(GUI._callbackHistory)
+			return copy
+		end
+
+		-- One InputChanged and one InputEnded connection for every global drag route.
+		local dispatcher = {changed={}, ended={}}
+		GUI._inputDispatcher = dispatcher
+
+		function GUI:_registerInputHandler(kind, id, callback, owner)
+			kind = tostring(kind or "changed"):lower()
+			if not dispatcher[kind] or type(callback) ~= "function" then return nil end
+			id = tostring(id or (kind .. "_" .. tostring(os.clock())))
+			dispatcher[kind][id] = {
+				callback=callback,
+				owner=ownerName(owner or "input"),
+			}
+			return function()
+				dispatcher[kind][id] = nil
+			end
+		end
+
+		function GUI:RemoveInputHandler(kind, id)
+			kind = tostring(kind or "changed"):lower()
+			if dispatcher[kind] then dispatcher[kind][tostring(id)] = nil end
+		end
+
+		local function dispatch(kind, input, gameProcessed)
+			for id, record in pairs(dispatcher[kind]) do
+				if record and type(record.callback) == "function" then
+					local ok = GUI:_invokeCallback("input:" .. tostring(id), record.callback, input, gameProcessed)
+					if ok == false and record.owner and GUI._ownerBuckets[record.owner] and GUI._ownerBuckets[record.owner].released then
+						dispatcher[kind][id] = nil
+					end
+				end
+			end
+		end
+
+		GUI:TrackOwnedConnection("input", UIS.InputChanged:Connect(function(input, gameProcessed)
+			dispatch("changed", input, gameProcessed)
+		end))
+		GUI:TrackOwnedConnection("input", UIS.InputEnded:Connect(function(input, gameProcessed)
+			dispatch("ended", input, gameProcessed)
+		end))
+
+		-- Control registry.
+		function GUI:GetControl(id)
+			return GUI._controls[tostring(id or "")]
+		end
+
+		function GUI:GetControls()
+			local result = {}
+			for id, control in pairs(GUI._controls) do result[id] = control end
+			return result
+		end
+
+		function GUI:GetControlIds()
+			local ids = {}
+			for id in pairs(GUI._controls) do table.insert(ids, id) end
+			table.sort(ids)
+			return ids
+		end
+
+		-- Reactive values.
+		function GUI:CreateValue(initialValue, name)
+			local value = {
+				Value=initialValue,
+				Name=tostring(name or ("Value" .. tostring(#GUI._values + 1))),
+				_listeners={},
+				_destroyed=false,
+			}
+			table.insert(GUI._values, value)
+
+			function value:Get() return self.Value end
+			function value:Set(newValue)
+				if self._destroyed or self.Value == newValue then return self end
+				self.Value = newValue
+				for id, callback in pairs(self._listeners) do
+					if type(callback) == "function" then
+						GUI:_invokeCallback("value:" .. self.Name .. ":" .. tostring(id), callback, newValue, self)
+					end
+				end
+				return self
+			end
+			function value:Update(updater)
+				if type(updater) == "function" then self:Set(updater(self.Value)) end
+				return self
+			end
+			function value:Bind(callback, fireNow)
+				if type(callback) ~= "function" then return function() end end
+				local id = tostring(os.clock()) .. ":" .. tostring(math.random())
+				self._listeners[id] = callback
+				if fireNow ~= false then GUI:_invokeCallback("value-bind:" .. self.Name, callback, self.Value, self) end
+				return function() self._listeners[id] = nil end
+			end
+			function value:BindControl(control, transform)
+				if type(control) ~= "table" or type(control.Set) ~= "function" then return function() end end
+				return self:Bind(function(current)
+					control:Set(type(transform) == "function" and transform(current) or current)
+				end, true)
+			end
+			function value:Destroy()
+				self._destroyed = true
+				table.clear(self._listeners)
+			end
+			return value
+		end
+
+		-- Config migrations.
+		GUI._configSchemaVersion = math.max(1, math.floor(tonumber(options.configSchemaVersion) or 2))
+
+		function GUI:RegisterConfigMigration(fromVersion, toVersion, callback)
+			fromVersion, toVersion = tonumber(fromVersion), tonumber(toVersion)
+			if not fromVersion or not toVersion or toVersion <= fromVersion or type(callback) ~= "function" then return false end
+			GUI._configMigrations[fromVersion] = {to=toVersion, callback=callback}
+			return true
+		end
+
+		function GUI:MigrateConfig(data)
+			if type(data) ~= "table" then return data, false end
+			local current = tonumber(data.__schema) or 1
+			local changed = false
+			local guard = 0
+			while current < GUI._configSchemaVersion and guard < 32 do
+				guard = guard + 1
+				local migration = GUI._configMigrations[current]
+				if migration then
+					local ok, result = GUI:_invokeCallback("config-migration:" .. tostring(current), migration.callback, data)
+					if ok and type(result) == "table" then data = result end
+					current = migration.to
+				else
+					current = current + 1
+				end
+				changed = true
+			end
+			data.__schema = GUI._configSchemaVersion
+			-- Built-in migration: old center snapping must stay disabled while position lock is active.
+			if data.resizeSnap == true and options.lockWindowPosition ~= false then
+				data.resizeSnap = false
+				changed = true
+			end
+			return data, changed
+		end
+
+		function GUI:GetConfigSchemaVersion()
+			return GUI._configSchemaVersion
+		end
+
+		-- Performance state. Auto mode only samples one lightweight Heartbeat.
+		GUI._performanceMode = tostring(options.performanceMode or "auto"):lower()
+		GUI._performanceState = {low=false, fps=60, changedAt=os.clock()}
+
+		local function applyPerformanceLow(low)
+			low = low == true
+			if GUI._performanceState.low == low then return end
+			GUI._performanceState.low = low
+			GUI._performanceState.changedAt = os.clock()
+			if low then
+				GUI._animationFPSCap = 15
+				GUI._animationSpeed = 0.35
+				GUI._animationIntensity = 0.30
+				if type(GUI.SetThemeOverlayVisible) == "function" then pcall(function() GUI:SetThemeOverlayVisible(false) end) end
+			else
+				GUI._animationFPSCap = tonumber(options.animationFPSCap) or 30
+				GUI._animationSpeed = 1
+				GUI._animationIntensity = 1
+				if type(GUI.SetThemeOverlayVisible) == "function" then pcall(function() GUI:SetThemeOverlayVisible(true) end) end
+			end
+		end
+
+		function GUI:SetPerformanceMode(mode)
+			mode = tostring(mode or "auto"):lower()
+			if mode ~= "auto" and mode ~= "balanced" and mode ~= "low" and mode ~= "off" then mode = "auto" end
+			GUI._performanceMode = mode
+			if mode == "low" then applyPerformanceLow(true)
+			elseif mode == "balanced" or mode == "off" then applyPerformanceLow(false) end
+			return mode
+		end
+
+		function GUI:GetPerformanceMode() return GUI._performanceMode end
+		function GUI:GetPerformanceState()
+			return {
+				mode=GUI._performanceMode,
+				low=GUI._performanceState.low,
+				fps=GUI._performanceState.fps,
+				changedAt=GUI._performanceState.changedAt,
+			}
+		end
+
+		local elapsed, frames = 0, 0
+		GUI:TrackOwnedConnection("performance", RunService.Heartbeat:Connect(function(dt)
+			if GUI._performanceMode ~= "auto" or _destroyed then return end
+			elapsed = elapsed + math.max(0, tonumber(dt) or 0)
+			frames = frames + 1
+			if elapsed < 1 then return end
+			local fps = frames / math.max(elapsed, 0.001)
+			GUI._performanceState.fps = math.floor(fps + 0.5)
+			elapsed, frames = 0, 0
+			if not GUI._performanceState.low and fps < (tonumber(options.performanceLowFPS) or 42) then
+				applyPerformanceLow(true)
+			elseif GUI._performanceState.low and fps > (tonumber(options.performanceRecoverFPS) or 54) then
+				applyPerformanceLow(false)
+			end
+		end))
+
+		function GUI:GetDiagnostics()
+			local runtime = Library:GetRuntimeCounts()
+			local inputHandlers = 0
+			for _, group in pairs(dispatcher) do for _ in pairs(group) do inputHandlers = inputHandlers + 1 end end
+			return {
+				version=Library.Version,
+				destroyed=_destroyed,
+				tabs=#GUI._tabs,
+				controls=#GUI:GetControlIds(),
+				values=#GUI._values,
+				connections=runtime.connections,
+				instances=runtime.instances,
+				shutdowns=runtime.shutdowns,
+				inputHandlers=inputHandlers,
+				owners=GUI:GetOwnerStats(),
+				callbacks=GUI:GetCallbackDiagnostics(),
+				performance=GUI:GetPerformanceState(),
+				position=MainWrap and MainWrap.Position or nil,
+			}
+		end
+	end)()
 	local function regAccent(obj, prop)
 		if obj then
 			local resolvedProp = prop
@@ -3205,20 +3610,20 @@ function Library:new(options)
 				V.miniStartPos = V.miniFrame.Position
 			end
 		end)
-		track(UIS.InputChanged:Connect(function(i)
+		GUI:_registerInputHandler("changed", "mini-drag", function(i)
 			if not V.miniDrag or not V.miniFrame then return end
 			if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
 			local d = i.Position - V.miniDragStart
 			V.miniFrame.Position = _miniClampPosition(UDim2.new(V.miniStartPos.X.Scale, V.miniStartPos.X.Offset + d.X, V.miniStartPos.Y.Scale, V.miniStartPos.Y.Offset + d.Y))
-		end))
-		track(UIS.InputEnded:Connect(function(i)
+		end, "mini")
+		GUI:_registerInputHandler("ended", "mini-drag-end", function(i)
 			if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
 				if V.miniDrag then
 					V.miniDrag = false
 					pcall(function() GUI:MarkConfigDirty() end)
 				end
 			end
-		end))
+		end, "mini")
 
 		-- Stats are updated by the shared updater above.
 
@@ -3280,7 +3685,7 @@ function Library:new(options)
 				wmDrag=true; wmDragStart=i.Position; wmDragPos=V.wmFrame.Position
 			end
 		end)
-		track(UIS.InputChanged:Connect(function(i)
+		GUI:_registerInputHandler("changed", "watermark-drag", function(i)
 			if (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) and V._wmResizing then
 				local d = i.Position - V._wmResizeStart
 				_applyWatermarkSize((V._wmStartW or V.wmWidth) - d.X, (V._wmStartH or V.wmHeight) + d.Y, true)
@@ -3288,21 +3693,16 @@ function Library:new(options)
 			end
 			if wmDrag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
 				local d = (i.Position - wmDragStart) * getDragOutMultiplier()
-				local nx = wmDragPos.X.Offset + d.X
-				local ny = wmDragPos.Y.Offset + d.Y
-				V.wmFrame.Position = UDim2.new(wmDragPos.X.Scale, nx, wmDragPos.Y.Scale, ny)
+				V.wmFrame.Position = UDim2.new(wmDragPos.X.Scale, wmDragPos.X.Offset + d.X, wmDragPos.Y.Scale, wmDragPos.Y.Offset + d.Y)
 			end
-		end))
-		track(UIS.InputEnded:Connect(function(i)
+		end, "watermark")
+		GUI:_registerInputHandler("ended", "watermark-drag-end", function(i)
 			if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-				if V._wmResizing then
-					V._wmResizing = false
-					pcall(function() GUI:MarkConfigDirty() end)
-				end
+				if V._wmResizing then V._wmResizing = false; pcall(function() GUI:MarkConfigDirty() end) end
 				if wmDrag then pcall(function() GUI:MarkConfigDirty() end) end
 				wmDrag=false
 			end
-		end))
+		end, "watermark")
 		GUI._watermark = V.wmFrame
 	end
 
@@ -5443,17 +5843,14 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				V.bubbleStartPos = V.minimizeBubble.Position
 			end
 		end))
-		track(UIS.InputChanged:Connect(function(i)
+		GUI:_registerInputHandler("changed", "bubble-drag", function(i)
 			if not V.bubbleDragging or not V.minimizeBubble then return end
 			if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
 			local d = i.Position - V.bubbleDragStart
 			if math.abs(d.X) > 4 or math.abs(d.Y) > 4 then V.bubbleMoved = true end
-			V.minimizeBubble.Position = UDim2.new(
-				V.bubbleStartPos.X.Scale, V.bubbleStartPos.X.Offset + d.X,
-				V.bubbleStartPos.Y.Scale, V.bubbleStartPos.Y.Offset + d.Y
-			)
-		end))
-		track(UIS.InputEnded:Connect(function(i)
+			V.minimizeBubble.Position = UDim2.new(V.bubbleStartPos.X.Scale, V.bubbleStartPos.X.Offset + d.X, V.bubbleStartPos.Y.Scale, V.bubbleStartPos.Y.Offset + d.Y)
+		end, "bubble")
+		GUI:_registerInputHandler("ended", "bubble-drag-end", function(i)
 			if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
 			if not V.bubbleDragging then return end
 			V.bubbleDragging = false
@@ -5462,7 +5859,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			else
 				pcall(function() GUI:MarkConfigDirty() end)
 			end
-		end))
+		end, "bubble")
 		V.minimizeBubble.MouseEnter:Connect(function()
 			local hover = (Library.Theme.SurfaceHover or Library.Theme.Surface):Lerp(Library.Theme.Accent, 0.12)
 			tw(V.minimizeBubble, {BackgroundColor3 = hover})
@@ -6279,23 +6676,14 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		V.startPos = current
 	end))
 
-	track(UIS.InputChanged:Connect(function(input)
+	GUI:_registerInputHandler("changed", "window-drag", function(input)
 		if not V.dragging or not V.dragStart or not V.startPos then return end
-
 		local inputType = input.UserInputType
-		if inputType ~= Enum.UserInputType.MouseMovement and inputType ~= Enum.UserInputType.Touch then
-			return
-		end
-		if inputType == Enum.UserInputType.Touch and V.dragInput and input ~= V.dragInput then
-			return
-		end
-
-		local delta = Vector2.new(input.Position.X, input.Position.Y) - V.dragStart
-		delta = delta * getDragOutMultiplier()
-
+		if inputType ~= Enum.UserInputType.MouseMovement and inputType ~= Enum.UserInputType.Touch then return end
+		if inputType == Enum.UserInputType.Touch and V.dragInput and input ~= V.dragInput then return end
+		local delta = (Vector2.new(input.Position.X, input.Position.Y) - V.dragStart) * getDragOutMultiplier()
 		local newX = V.startPos.X.Offset + delta.X
 		local newY = V.startPos.Y.Offset + delta.Y
-
 		if _dragBordersEnabled() then
 			local camera = workspace.CurrentCamera
 			local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
@@ -6304,28 +6692,19 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			newX = math.clamp(newX, scaledW / 2, viewport.X - scaledW / 2)
 			newY = math.clamp(newY, scaledH / 2, viewport.Y - scaledH / 2)
 		end
-
 		local position = UDim2.new(0, math.floor(newX + 0.5), 0, math.floor(newY + 0.5))
 		MainWrap.Position = position
 		_runtimeRoot.windowPosition = position
-	end))
-
-	track(UIS.InputEnded:Connect(function(input)
+	end, "window")
+	GUI:_registerInputHandler("ended", "window-drag-end", function(input)
 		local inputType = input.UserInputType
 		local endsMouse = inputType == Enum.UserInputType.MouseButton1
-		local endsTouch = inputType == Enum.UserInputType.Touch
-			and (V.dragInput == nil or input == V.dragInput)
-
+		local endsTouch = inputType == Enum.UserInputType.Touch and (V.dragInput == nil or input == V.dragInput)
 		if endsMouse or endsTouch then
-			V.dragging = false
-			V.dragInput = nil
-			V.dragStart = nil
-			V.startPos = nil
-			if MainWrap and MainWrap.Parent then
-				_runtimeRoot.windowPosition = MainWrap.Position
-			end
+			V.dragging=false; V.dragInput=nil; V.dragStart=nil; V.startPos=nil
+			if MainWrap and MainWrap.Parent then _runtimeRoot.windowPosition = MainWrap.Position end
 		end
-	end))
+	end, "window")
 
 	-- ── Window resize (bottom-right corner hotspot) ────────────────────────
 	local resizeHandle = Instance.new("TextButton", Main)
@@ -6358,32 +6737,25 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		end
 	end))
 
-	track(UIS.InputChanged:Connect(function(i)
+	GUI:_registerInputHandler("changed", "window-resize", function(i)
 		if not V.resizeDragging then return end
 		if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
 		if i.UserInputType == Enum.UserInputType.Touch and V.resizeInput and i ~= V.resizeInput then return end
 		local delta = Vector2.new(i.Position.X, i.Position.Y) - V.resizeDragStart
 		WIN_MAX_W, WIN_MAX_H = getViewportLimit()
-		local newW  = math.clamp(V.resizeStartSize.X + delta.X, WIN_MIN_W, WIN_MAX_W)
-		local newH  = math.clamp(V.resizeStartSize.Y + delta.Y, WIN_MIN_H, WIN_MAX_H)
-		winW = newW; winH = newH
-		currentScale = 100  -- reset scale to 100 when manually resizing
+		local newW = math.clamp(V.resizeStartSize.X + delta.X, WIN_MIN_W, WIN_MAX_W)
+		local newH = math.clamp(V.resizeStartSize.Y + delta.Y, WIN_MIN_H, WIN_MAX_H)
+		winW, winH, currentScale = newW, newH, 100
 		MainWrap.Size = UDim2.new(0, newW, 0, newH)
-	end))
-
-	track(UIS.InputEnded:Connect(function(i)
+	end, "window")
+	GUI:_registerInputHandler("ended", "window-resize-end", function(i)
 		local inputType = i.UserInputType
 		local endsMouse = inputType == Enum.UserInputType.MouseButton1
-		local endsTouch = inputType == Enum.UserInputType.Touch
-			and (V.resizeInput == nil or i == V.resizeInput)
-		if endsMouse or endsTouch then
-			if V.resizeDragging then
-				V.resizeDragging = false
-				V.resizeInput = nil
-				GUI:MarkConfigDirty()  -- mark dirty after resize
-			end
+		local endsTouch = inputType == Enum.UserInputType.Touch and (V.resizeInput == nil or i == V.resizeInput)
+		if (endsMouse or endsTouch) and V.resizeDragging then
+			V.resizeDragging=false; V.resizeInput=nil; GUI:MarkConfigDirty()
 		end
-	end))
+	end, "window")
 
 	-- ══════════════════════════════════════════════════════════════════════
 	-- MAIN TAB SYSTEM — GUI:CreateTab
@@ -6391,7 +6763,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	-- ══════════════════════════════════════════════════════════════════════
 	function GUI:CreateTab(opts)
 		opts=validate({name="Tab", icon="🏠", badge=nil, badgeColor=nil},opts)
-		local Tab={Active=false, _name=opts.name, _disabled=false}
+		local Tab={Active=false, _name=opts.name, _disabled=false, _lazyBuilders={}, _lazyBuilt=false, _lazy=(opts.lazy == true or options.lazyTabs == true)}
 		local isFirst=(#GUI._tabs==0)
 		table.insert(GUI._tabs,Tab)
 		if isFirst then GUI.CurrentTab=Tab; Tab.Active=true end
@@ -6651,6 +7023,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 		function Tab:Activate()
 			if Tab.Active or Tab._disabled then return end
+			if type(Tab._BuildLazy) == "function" then Tab:_BuildLazy() end
 			if GUI.CurrentTab then GUI.CurrentTab:Deactivate() end
 			Tab.Active=true; Tab._scroll.Position=UDim2.new(0,0,0,0); GUI.CurrentTab=Tab
 			Tab:_ApplyNavStyle(false)
@@ -6813,7 +7186,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			if type(control.Set) ~= "function" then
 				function control:Set(v, silent)
 					self.Value = v
-					if not silent and type(opts.callback) == "function" then pcall(opts.callback, v) end
+					if not silent and type(opts.callback) == "function" then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, v) end
 					pcall(function() GUI:MarkConfigDirty() end)
 					return self
 				end
@@ -7272,7 +7645,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
 					busy=true
 					render(not Toggle.Value)
-					pcall(opts.callback, Toggle.Value)
+					GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, Toggle.Value)
 					pcall(function() GUI:MarkConfigDirty() end)
 					task.delay(0.08,function() busy=false end)
 				end
@@ -7281,13 +7654,13 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			Toggle.frame.MouseLeave:Connect(function() tw(Toggle.frame,{BackgroundColor3=Library.Theme.Surface}); tw(bStroke,{Color=Library.Theme.Border}) end)
 			function Toggle:Set(v, silent)
 				render(v)
-				if not silent then pcall(opts.callback, Toggle.Value); pcall(function() GUI:MarkConfigDirty() end) end
+				if not silent then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, Toggle.Value); pcall(function() GUI:MarkConfigDirty() end) end
 				return Toggle
 			end
 			function Toggle:_stopForDestroy()
 				if Toggle.Value ~= true then return end
 				render(false, true)
-				pcall(opts.callback, false)
+				GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, false)
 			end
 			function Toggle:Get() return Toggle.Value end
 			_registerConfigControl(Toggle, opts, "toggle")
@@ -7886,9 +8259,9 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 					end)
 					opt.MouseButton1Click:Connect(function()
 						if opts.multi then
-							DD.Multi[item]=not DD.Multi[item]; local s=selectedList(); selLbl.Text=labelText(); pcall(opts.callback,s); refresh()
+							DD.Multi[item]=not DD.Multi[item]; local s=selectedList(); selLbl.Text=labelText(); GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback,s); refresh()
 						else
-							DD.Selected=item; selLbl.Text=labelText(); pcall(opts.callback,item); setOpen(false); DD.frame.Size=UDim2.new(1,0,0,closedH); refresh()
+							DD.Selected=item; selLbl.Text=labelText(); GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback,item); setOpen(false); DD.frame.Size=UDim2.new(1,0,0,closedH); refresh()
 						end
 						pcall(function() GUI:MarkConfigDirty() end)
 					end)
@@ -7906,9 +8279,9 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			function DD:Set(v, silent)
 				if opts.multi then
 					DD.Multi={}; if type(v)=="table" then for _,x in ipairs(v) do DD.Multi[x]=true end end
-					selLbl.Text=labelText(); if not silent then pcall(opts.callback, selectedList()) end
+					selLbl.Text=labelText(); if not silent then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, selectedList()) end
 				else
-					DD.Selected=v; selLbl.Text=labelText(); if not silent then pcall(opts.callback, v) end
+					DD.Selected=v; selLbl.Text=labelText(); if not silent then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, v) end
 				end
 				refresh()
 				return DD
@@ -8023,8 +8396,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 						opt.MouseEnter:Connect(function() local nowSel=(opts.multi and DD.Multi[item]) or (not opts.multi and DD.Selected==item); if not nowSel then tw(opt,{BackgroundColor3=Library.Theme.SurfaceHover,TextColor3=Library.Theme.TextPrimary}); safeTween(optStroke,{Color=Library.Theme.BorderHover}) end end)
 						opt.MouseLeave:Connect(function() local nowSel=(opts.multi and DD.Multi[item]) or (not opts.multi and DD.Selected==item); if not nowSel then tw(opt,{BackgroundColor3=Library.Theme.Surface,TextColor3=Library.Theme.TextSecondary}); safeTween(optStroke,{Color=Library.Theme.Border}) end end)
 						opt.MouseButton1Click:Connect(function()
-							if opts.multi then DD.Multi[item]=not DD.Multi[item]; local s=selectedList(); selLbl.Text=labelText(); pcall(opts.callback,s); refresh()
-							else DD.Selected=item; selLbl.Text=labelText(); pcall(opts.callback,item); setOpen(false); DD.frame.Size=UDim2.new(1,0,0,closedH); refresh() end
+							if opts.multi then DD.Multi[item]=not DD.Multi[item]; local s=selectedList(); selLbl.Text=labelText(); GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback,s); refresh()
+							else DD.Selected=item; selLbl.Text=labelText(); GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback,item); setOpen(false); DD.frame.Size=UDim2.new(1,0,0,closedH); refresh() end
 							pcall(function() GUI:MarkConfigDirty() end)
 						end)
 						total=total+rowH+5
@@ -8056,8 +8429,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			DD.frame.MouseLeave:Connect(function() if not DD.Open then tw(DD.frame,{BackgroundColor3=Library.Theme.Surface}) end end)
 			refresh()
 			function DD:Set(v, silent)
-				if opts.multi then DD.Multi={}; if type(v)=="table" then for _,x in ipairs(v) do DD.Multi[x]=true end end; selLbl.Text=labelText(); if not silent then pcall(opts.callback, selectedList()) end
-				else DD.Selected=v; selLbl.Text=labelText(); if not silent then pcall(opts.callback, v) end end
+				if opts.multi then DD.Multi={}; if type(v)=="table" then for _,x in ipairs(v) do DD.Multi[x]=true end end; selLbl.Text=labelText(); if not silent then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, selectedList()) end
+				else DD.Selected=v; selLbl.Text=labelText(); if not silent then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, v) end end
 				refresh()
 				return DD
 			end
@@ -8120,7 +8493,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				else
 					TIc.Value=tostring(box.Text)
 				end
-				if not silent then pcall(opts.callback, TIc.Value) end
+				if not silent then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, TIc.Value) end
 				pcall(function() GUI:MarkConfigDirty() end)
 			end
 			box.FocusLost:Connect(function() setFocusVisual(false); commit(false) end)
@@ -8168,7 +8541,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			local function rebuild(silent)
 				local c=Color3.fromHSV(h_v,s_v,v_v)
 				CP.Value=c; preview.BackgroundColor3=c; hexLbl.Text=cToHex(c); setFills()
-				if not silent and not _syncing then pcall(opts.callback,c) end
+				if not silent and not _syncing then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback,c) end
 			end
 			local function makeHSVSlider(name,init,cb,color)
 				local row=Instance.new("Frame",picker)
@@ -8214,7 +8587,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				h_v,s_v,v_v=Color3.toHSV(c)
 				setFills()
 				_syncing = false
-				if not silent then pcall(opts.callback,c) end
+				if not silent then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback,c) end
 				return CP
 			end
 			function CP:Get() return CP.Value end
@@ -8453,6 +8826,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				placeholder = "—",
 				valueColor = nil,
 				formatter = nil,
+				valueObject = nil,
 			}, opts)
 
 			local Display = {}
@@ -8563,6 +8937,14 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 			addTooltip(Display.frame, opts.tooltip)
 			render()
+			if type(opts.valueObject) == "table" and type(opts.valueObject.Bind) == "function" then
+				Display._valueDisconnect = opts.valueObject:Bind(function(value)
+					Display:Set(value)
+				end, true)
+				GUI:RegisterOwnedCleanup("values", function()
+					if type(Display._valueDisconnect) == "function" then Display._valueDisconnect() end
+				end, "NumberDisplay value binding")
+			end
 			return Display
 		end
 
@@ -9001,7 +9383,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			btn.MouseLeave:Connect(function() tw(btn, {BackgroundColor3 = Library.Theme.Accent}) end)
 			btn.MouseButton1Click:Connect(function()
 				if type(setclipboard) == "function" then pcall(function() setclipboard(Copy.Value) end) end
-				if type(opts.callback) == "function" then pcall(opts.callback, Copy.Value) end
+				if type(opts.callback) == "function" then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, Copy.Value) end
 				pcall(function() GUI:Notify("Copied", "Text copied to clipboard.", 2, "success") end)
 			end)
 			function Copy:Set(v) Copy.Value = tostring(v or ""); return Copy end
@@ -9039,7 +9421,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			function Stepper:Set(v, silent)
 				Stepper.Value = math.clamp(round(tonumber(v) or Stepper.Value or minV), minV, maxV)
 				render()
-				if not silent then pcall(opts.callback, Stepper.Value) end
+				if not silent then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, Stepper.Value) end
 				return Stepper
 			end
 			function Stepper:Get() return Stepper.Value end
@@ -9103,7 +9485,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			function Seg:Set(v, silent)
 				Seg.Selected = v
 				redraw()
-				if not silent then pcall(opts.callback, v) end
+				if not silent then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, v) end
 				return Seg
 			end
 			function Seg:Get() return Seg.Selected end
@@ -9166,7 +9548,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			function KV:Set(v, silent)
 				KV.Value = tostring(v or "")
 				valLbl.Text = KV.Value
-				if not silent and type(opts.callback) == "function" then pcall(opts.callback, KV.Value, KV.Key) end
+				if not silent and type(opts.callback) == "function" then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, KV.Value, KV.Key) end
 				return KV
 			end
 			function KV:SetKey(v)
@@ -9281,7 +9663,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			function TB:Set(v, silent)
 				TB.Value = v == true
 				render()
-				if not silent then pcall(opts.callback, TB.Value) end
+				if not silent then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, TB.Value) end
 				return TB
 			end
 			function TB:Get() return TB.Value end
@@ -9424,7 +9806,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			pad(box, 0, 10, 0, 10)
 			box:GetPropertyChangedSignal("Text"):Connect(function()
 				SB.Value = box.Text
-				pcall(opts.callback, SB.Value)
+				GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, SB.Value)
 			end)
 			box.FocusLost:Connect(function(enterPressed)
 				if enterPressed and type(opts.submitCallback) == "function" then pcall(opts.submitCallback, SB.Value) end
@@ -9432,7 +9814,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			function SB:Set(v, silent)
 				SB.Value = tostring(v or "")
 				box.Text = SB.Value
-				if not silent then pcall(opts.callback, SB.Value) end
+				if not silent then GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback, SB.Value) end
 				return SB
 			end
 			function SB:Get() return SB.Value end
@@ -9690,8 +10072,58 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			end
 		end
 
+
+		function Tab:BuildLazy(builder)
+			if type(builder) ~= "function" then return Tab end
+			if not Tab._lazy or Tab.Active or Tab._lazyBuilt then
+				GUI:_invokeCallback("lazy-tab:" .. tostring(Tab._name), builder, Tab)
+			else
+				table.insert(Tab._lazyBuilders, builder)
+			end
+			return Tab
+		end
+
+		function Tab:_BuildLazy()
+			if Tab._lazyBuilt then return Tab end
+			Tab._lazyBuilt = true
+			local builders = Tab._lazyBuilders
+			Tab._lazyBuilders = {}
+			for _, builder in ipairs(builders) do
+				GUI:_invokeCallback("lazy-tab:" .. tostring(Tab._name), builder, Tab)
+				if _safeLoadState.enabled then _safeLoadYield("Building " .. tostring(Tab._name), false) end
+			end
+			return Tab
+		end
+
+		function Tab:IsLazyBuilt()
+			return Tab._lazyBuilt == true
+		end
+
+		if isFirst then Tab:_BuildLazy() end
 		return Tab
 	end -- GUI:CreateTab
+
+
+	function GUI:GetNormalizedPosition()
+		local camera = workspace.CurrentCamera
+		local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+		local absolute = MainWrap and MainWrap.AbsolutePosition or Vector2.new(viewport.X * 0.5, viewport.Y * 0.5)
+		return Vector2.new(
+			math.clamp(absolute.X / math.max(viewport.X, 1), -2, 3),
+			math.clamp(absolute.Y / math.max(viewport.Y, 1), -2, 3)
+		)
+	end
+
+	function GUI:SetNormalizedPosition(x, y)
+		local camera = workspace.CurrentCamera
+		local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+		x, y = tonumber(x) or 0.5, tonumber(y) or 0.5
+		local position = UDim2.new(0, math.floor(viewport.X * x + 0.5), 0, math.floor(viewport.Y * y + 0.5))
+		MainWrap.Position = position
+		_runtimeRoot.windowPosition = position
+		return position
+	end
+
 
 	-- Register-safe module boundary: config, theme, and settings engine.
 	;(function()
@@ -10857,6 +11289,12 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			resizeSnap = (not _lockWindowPosition) and _resizeSnapEnabled == true,
 			resizeSnapMode = _resizeSnapMode,
 			dragBounds = options.dragBounds == true,
+			windowX = MainWrap and MainWrap.Position.X.Offset or 0,
+			windowY = MainWrap and MainWrap.Position.Y.Offset or 0,
+			windowScaleX = MainWrap and MainWrap.Position.X.Scale or 0,
+			windowScaleY = MainWrap and MainWrap.Position.Y.Scale or 0,
+			windowNormX = (MainWrap and workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.X > 0) and (MainWrap.AbsolutePosition.X / workspace.CurrentCamera.ViewportSize.X) or 0.5,
+			windowNormY = (MainWrap and workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y > 0) and (MainWrap.AbsolutePosition.Y / workspace.CurrentCamera.ViewportSize.Y) or 0.5,
 		}
 		for id, control in pairs(GUI._configControls or {}) do
 			if control and type(control.Get) == "function" then
@@ -11262,6 +11700,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	function GUI:_configPayloadTable()
 		local payload = {
 			__version = Library.Version,
+			__schema = GUI:GetConfigSchemaVersion(),
 			__savedAt = tostring(os.time()),
 			profile   = V._cfgProfile,
 			accent    = GUI:_c3ToHex(Library.Theme.Accent),
@@ -11331,6 +11770,14 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 	function GUI:ApplyConfig(data, fireCallbacks)
 		if type(data) ~= "table" then return false end
+		data = select(1, GUI:MigrateConfig(data))
+		if options.normalizedPosition ~= false and tonumber(data.windowNormX) and tonumber(data.windowNormY) then
+			GUI:SetNormalizedPosition(data.windowNormX, data.windowNormY)
+		elseif tonumber(data.windowX) and tonumber(data.windowY) then
+			local restored = UDim2.new(tonumber(data.windowScaleX) or 0, tonumber(data.windowX) or 0, tonumber(data.windowScaleY) or 0, tonumber(data.windowY) or 0)
+			MainWrap.Position = restored
+			_runtimeRoot.windowPosition = restored
+		end
 		if data.watermarkRuntimeLabel ~= nil then data.watermarkRuntimeLabel = tostring(data.watermarkRuntimeLabel) end
 		local previous = {}
 		if fireCallbacks == false then
@@ -13022,6 +13469,7 @@ function Library:GetAnimationStyles()
 end
 
 function Library:SelfTest()
+	local stabilityFeatures = {"owned-cleanup","shared-input","callback-diagnostics","control-registry","reactive-values","lazy-builders","config-migrations","performance-mode","normalized-position"}
 	local guiParentName = "unknown"
 	pcall(function()
 		local parent = getScreenGuiParent()
