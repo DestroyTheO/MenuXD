@@ -18,7 +18,7 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.98-atomic-hot-reload"
+Library.Version = "5.97-reexecute-replacement-fix"
 
 -- ══════════════════════════════════════════════════════════════════════
 -- RUNTIME GUARD
@@ -42,10 +42,6 @@ local _runtimeRoot do
 	env.__VenturaUIRuntime.respawnReuseCredits = math.max(0, math.floor(tonumber(env.__VenturaUIRuntime.respawnReuseCredits) or 0))
 	env.__VenturaUIRuntime.respawnCharacter = env.__VenturaUIRuntime.respawnCharacter or nil
 	env.__VenturaUIRuntime.lastBuilderAction = tostring(env.__VenturaUIRuntime.lastBuilderAction or "none")
-	env.__VenturaUIRuntime.pendingStaging = env.__VenturaUIRuntime.pendingStaging or nil
-	env.__VenturaUIRuntime.pendingStagingCleanup = env.__VenturaUIRuntime.pendingStagingCleanup or nil
-	env.__VenturaUIRuntime.hotReloadGeneration = math.max(0, math.floor(tonumber(env.__VenturaUIRuntime.hotReloadGeneration) or 0))
-	env.__VenturaUIRuntime.lastHotReloadError = env.__VenturaUIRuntime.lastHotReloadError or nil
 	_runtimeRoot = env.__VenturaUIRuntime
 end
 
@@ -2162,13 +2158,7 @@ function Library:new(options)
 		forceRebuild     = false, -- always replace the current window for this builder pass
 		reuseExisting    = true,  -- allows respawn-only duplicate absorption
 		reuseExistingMode = "respawn", -- "respawn" (default), "always", or "never"
-		replaceExistingOnExecute = true, -- normal re-execution replaces the old UI
-		atomicReplace    = true,  -- build the new UI hidden before closing the old UI
-		preserveState    = true,  -- transfer window/config/control state during replacement
-		hotReloadCallbacks = false, -- do not replay gameplay callbacks while transferring state
-		hotReloadKeepOldOnError = true, -- failed staging builds leave the old UI untouched
-		hotReloadTransferSelectedTab = true,
-		hotReloadTransferPosition = true,
+		replaceExistingOnExecute = true, -- normal re-execution destroys and replaces the old UI
 		respawnReuseWindow = 6, -- seconds in which one immediate respawn builder pass may be absorbed
 		reconnectOnRespawn = false, -- opt-in only; prevents heavy callbacks replaying after every respawn
 		reconnectDelay   = 0.85,
@@ -2219,10 +2209,10 @@ function Library:new(options)
 	if options.accent then Library.Theme.Accent=options.accent end
 
 	-- Re-execution policy:
-	--   • Normal execution uses an atomic hidden staging window by default.
-	--   • The old window remains active until the new constructor finishes.
-	--   • A failed staging build leaves the old UI alive.
-	--   • One immediate respawn builder pass may still be absorbed.
+	--   • Normal execution replaces the old UI.
+	--   • The immediate auto-execute pass after CharacterAdded may be absorbed once.
+	--   • forceRebuild=true always replaces.
+	--   • reuseExistingMode="always" restores the old permanent-singleton behavior.
 	local _activeWindow = _runtimeRoot.activeWindow
 	local _activeScreenGui = _runtimeRoot.activeScreenGui
 	local _activeAlive = false
@@ -2232,20 +2222,6 @@ function Library:new(options)
 			and _activeScreenGui.Parent ~= nil
 			and _activeScreenGui:IsA("ScreenGui")
 	end)
-
-	-- A staging ScreenGui left behind by a constructor error is removed on the
-	-- next attempt. The active old UI is never stored in pendingStaging.
-	local _staleStaging = _runtimeRoot.pendingStaging
-	local _staleCleanup = _runtimeRoot.pendingStagingCleanup
-	if type(_staleCleanup) == "function" then
-		pcall(_staleCleanup, "stale-staging")
-	elseif _staleStaging and _staleStaging ~= _activeScreenGui then
-		pcall(function()
-			if _staleStaging.Parent then _staleStaging:Destroy() end
-		end)
-	end
-	_runtimeRoot.pendingStaging = nil
-	_runtimeRoot.pendingStagingCleanup = nil
 
 	local _reuseMode = tostring(options.reuseExistingMode or "respawn"):lower()
 	if _reuseMode ~= "respawn" and _reuseMode ~= "always" and _reuseMode ~= "never" then
@@ -2270,7 +2246,10 @@ function Library:new(options)
 
 	if not _forceRebuild and (_isRespawnBuilderPass or _alwaysReuse) then
 		if _isRespawnBuilderPass then
-			_runtimeRoot.respawnReuseCredits = math.max(0, (tonumber(_runtimeRoot.respawnReuseCredits) or 1) - 1)
+			_runtimeRoot.respawnReuseCredits = math.max(
+				0,
+				(tonumber(_runtimeRoot.respawnReuseCredits) or 1) - 1
+			)
 			_runtimeRoot.lastBuilderAction = "reused-after-respawn"
 		else
 			_runtimeRoot.lastBuilderAction = "reused-always"
@@ -2279,52 +2258,14 @@ function Library:new(options)
 		return _makeRespawnBuilderSink(_activeWindow)
 	end
 
-	local _replacementOldWindow = _activeAlive and _activeWindow or nil
-	local _replacementOldScreenGui = _activeAlive and _activeScreenGui or nil
-	local _atomicStaging = _activeAlive
-		and options.replaceExistingOnExecute ~= false
-		and options.atomicReplace ~= false
-	local _replacementState = nil
-
-	local function _safeWindowMethod(window, methodName, ...)
-		local method = window and window[methodName]
-		if type(method) ~= "function" then return nil end
-		local packed = table.pack(pcall(method, window, ...))
-		if not packed[1] then return nil end
-		return table.unpack(packed, 2, packed.n)
-	end
-
-	local function _captureWindowState(window)
-		if not window or options.preserveState == false then return nil end
-		local state = {
-			version = _safeWindowMethod(window, "GetVersion"),
-			config = _safeWindowMethod(window, "GetConfigSnapshot", true),
-			selectedTab = window.CurrentTab and window.CurrentTab._name or nil,
-			minimized = _safeWindowMethod(window, "IsMinimized"),
-			open = window._open ~= false,
-			theme = _safeWindowMethod(window, "GetTheme"),
-			accent = _safeWindowMethod(window, "GetAccent"),
-			scale = _safeWindowMethod(window, "GetScale"),
-			normalizedPosition = _safeWindowMethod(window, "GetNormalizedPosition"),
-			keybinds = _safeWindowMethod(window, "GetKeybinds"),
-		}
-		return state
-	end
-
-	if _replacementOldWindow then
-		_replacementState = _captureWindowState(_replacementOldWindow)
-		if _atomicStaging then
-			_runtimeRoot.lastBuilderAction = "building-staging"
-		else
-			_runtimeRoot.lastBuilderAction = "replacing-existing"
-			destroyExistingVenturaGUI()
-			_replacementOldWindow = nil
-			_replacementOldScreenGui = nil
-		end
+	-- Default behavior for a normal second execution: stop the old callbacks,
+	-- destroy the old ScreenGui, and build the newest version.
+	if _activeAlive then
+		_runtimeRoot.lastBuilderAction = "replaced-existing"
 	else
 		_runtimeRoot.lastBuilderAction = "created-new"
-		destroyExistingVenturaGUI()
 	end
+	destroyExistingVenturaGUI()
 
 	local keys            = {toggle=_safeEnumKey(options.toggleKey, Enum.KeyCode.Insert)}
 	local keybindListening= false
@@ -2358,7 +2299,7 @@ function Library:new(options)
 		return UDim2.new(0, x, 0, y)
 	end
 
-	local GUI = {CurrentTab=nil, _tabs={}, _open=true, _accentObjects={}, _themeObjects={}, _themeListeners={}, _keybindWidgets={}, _activeKeybind=nil, _configControls={}, _controls={}, _toggleControls={}, _reconnectControls={}, _reconnectCallbacks={}, _loadedConfigData=nil, _configApplying=false, _destroyCallbacks={}, _cleanupCallbacks={}, _trackedProperties={}, _trackedHumanoidProperties={}, _trackedInstances={}, _ownerBuckets={}, _callbackStats={}, _callbackActive={}, _callbackHistory={}, _configMigrations={}, _values={}, _lastCallbackFailure=nil, _activityStopped=false, _closing=false, _reconnectEnabled=(options.reconnectOnRespawn == true), _reconnectDelay=tonumber(options.reconnectDelay) or 0.85, _respawnToken=0}
+	local GUI = {CurrentTab=nil, _tabs={}, _open=true, _accentObjects={}, _themeObjects={}, _themeListeners={}, _keybindWidgets={}, _activeKeybind=nil, _configControls={}, _controls={}, _toggleControls={}, _reconnectControls={}, _reconnectCallbacks={}, _loadedConfigData=nil, _configApplying=false, _destroyCallbacks={}, _cleanupCallbacks={}, _trackedProperties={}, _trackedHumanoidProperties={}, _trackedInstances={}, _ownerBuckets={}, _callbackStats={}, _callbackActive={}, _callbackHistory={}, _configMigrations={}, _values={}, _activityStopped=false, _closing=false, _reconnectEnabled=(options.reconnectOnRespawn == true), _reconnectDelay=tonumber(options.reconnectDelay) or 0.85, _respawnToken=0}
 
 	-- v5.77 Safe / Slow Load ----------------------------------------------------
 	-- Heavy theme/settings pages can be built in small chunks. This keeps the UI
@@ -2739,8 +2680,7 @@ function Library:new(options)
 		function GUI:TrackOwnedInstance(owner, instance)
 			if not instance then return instance end
 			table.insert(bucket(owner).instances, instance)
-			-- _trackedInstances expects records, not raw Instances.
-			table.insert(GUI._trackedInstances, {instance=instance, mode="destroy", owner=ownerName(owner)})
+			table.insert(GUI._trackedInstances, instance)
 			_runtimeTrackInstance(instance)
 			return instance
 		end
@@ -2810,9 +2750,8 @@ function Library:new(options)
 			end
 
 			GUI._callbackActive[callback] = true
-			local args = table.pack(...)
 			local started = os.clock()
-			local packed = table.pack(pcall(callback, table.unpack(args, 1, args.n)))
+			local packed = table.pack(pcall(callback, ...))
 			local elapsedMs = (os.clock() - started) * 1000
 			GUI._callbackActive[callback] = nil
 
@@ -2825,13 +2764,6 @@ function Library:new(options)
 			if not packed[1] then
 				stat.errors = stat.errors + 1
 				stat.lastError = tostring(packed[2])
-				GUI._lastCallbackFailure = {
-					label=name,
-					callback=callback,
-					args=args,
-					error=tostring(packed[2]),
-					at=os.clock(),
-				}
 			end
 			GUI._callbackStats[name] = stat
 
@@ -2856,24 +2788,6 @@ function Library:new(options)
 			end
 		end
 
-		function GUI:GetLastCallbackError()
-			local failure = GUI._lastCallbackFailure
-			if not failure then return nil end
-			return {label=failure.label, error=failure.error, at=failure.at}
-		end
-
-		function GUI:RetryLastCallback()
-			local failure = GUI._lastCallbackFailure
-			if not failure or type(failure.callback) ~= "function" then return false, "no callback failure" end
-			local args = failure.args or table.pack()
-			return GUI:_invokeCallback("retry:" .. tostring(failure.label), failure.callback, table.unpack(args, 1, args.n))
-		end
-
-		function GUI:ClearLastCallbackError()
-			GUI._lastCallbackFailure = nil
-			return true
-		end
-
 		function GUI:GetCallbackDiagnostics()
 			local copy = {}
 			for name, stat in pairs(GUI._callbackStats) do
@@ -2892,7 +2806,7 @@ function Library:new(options)
 		end
 
 		-- One InputChanged and one InputEnded connection for every global drag route.
-		local dispatcher = {began={}, changed={}, ended={}}
+		local dispatcher = {changed={}, ended={}}
 		GUI._inputDispatcher = dispatcher
 
 		function GUI:_registerInputHandler(kind, id, callback, owner)
@@ -2924,9 +2838,6 @@ function Library:new(options)
 			end
 		end
 
-		GUI:TrackOwnedConnection("input", UIS.InputBegan:Connect(function(input, gameProcessed)
-			dispatch("began", input, gameProcessed)
-		end))
 		GUI:TrackOwnedConnection("input", UIS.InputChanged:Connect(function(input, gameProcessed)
 			dispatch("changed", input, gameProcessed)
 		end))
@@ -3225,32 +3136,18 @@ function Library:new(options)
 		return true
 	end
 
-	_runtimeRoot.hotReloadGeneration = (tonumber(_runtimeRoot.hotReloadGeneration) or 0) + 1
-	local _buildGeneration = _runtimeRoot.hotReloadGeneration
 	local SG = _runtimeTrackInstance(Instance.new("ScreenGui"))
-	SG.Name = _atomicStaging and ("VenturaUI_Staging_" .. tostring(_buildGeneration)) or "VenturaUI"
-	SG.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
+	SG.Name="VenturaUI"; SG.ZIndexBehavior=Enum.ZIndexBehavior.Sibling
 	SG.IgnoreGuiInset=true; SG.ResetOnSpawn=false
 	SG.DisplayOrder=999
-	SG.Enabled = not _atomicStaging
 	parentScreenGuiSafely(SG)
 	GUI._sg=SG; setupTooltip(SG)
-	if _atomicStaging then
-		_runtimeRoot.pendingStaging = SG
-		_runtimeRoot.pendingStagingCleanup = function()
-			for _, connection in ipairs(_connections) do
-				pcall(function() if connection and connection.Disconnect then connection:Disconnect() end end)
-			end
-			pcall(function() if SG and SG.Parent then SG:Destroy() end end)
-		end
-	else
-		_runtimeRoot.activeWindow = GUI
-		_runtimeRoot.activeScreenGui = SG
-		_runtimeRoot.activeCharacter = LP.Character
-		_runtimeRoot.respawnCharacter = nil
-		_runtimeRoot.respawnGuardUntil = 0
-		_runtimeRoot.respawnReuseCredits = 0
-	end
+	_runtimeRoot.activeWindow = GUI
+	_runtimeRoot.activeScreenGui = SG
+	_runtimeRoot.activeCharacter = LP.Character
+	_runtimeRoot.respawnCharacter = nil
+	_runtimeRoot.respawnGuardUntil = 0
+	_runtimeRoot.respawnReuseCredits = 0
 	if _ttConn then track(_ttConn) end
 
 	-- Register-safe module boundary: visual engine, controls, config, and utilities.
@@ -6756,7 +6653,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end))
 
 	-- ── Shared global key listener (UI hotkeys + all keybind widgets) ───────
-	GUI:_registerInputHandler("began", "global-keybind", function(input, gpe)
+	track(UIS.InputBegan:Connect(function(input,gpe)
 		if _destroyed then return end
 
 		local activeKB = GUI._activeKeybind
@@ -6800,7 +6697,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				_syncOpenVisibility()
 			end
 		end
-	end, "window")
+	end))
 
 	-- ── Window drag ─────────────────────────────────────────────────────────
 	-- Normalize scale-based positions to absolute pixel offsets before dragging.
@@ -7297,23 +7194,6 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			opts = opts or {}
 			local frame = control.frame
 			control._enabled = control._enabled ~= false
-			local ownerKey = "control:" .. tostring(opts.id or opts.flag or opts.configId or opts.name or opts.title or control)
-			control._ownerKey = ownerKey
-			GUI:CreateOwner(ownerKey)
-			if frame then GUI:TrackOwnedInstance(ownerKey, frame) end
-			function control:GetOwner() return self._ownerKey end
-			function control:Own(item)
-				if typeof(item) == "RBXScriptConnection" then GUI:TrackOwnedConnection(self._ownerKey, item)
-				elseif typeof(item) == "Instance" then GUI:TrackOwnedInstance(self._ownerKey, item)
-				elseif type(item) == "function" then GUI:RegisterOwnedCleanup(self._ownerKey, item, "control cleanup") end
-				return item
-			end
-			function control:Connect(signal, callback)
-				if signal and type(signal.Connect) == "function" and type(callback) == "function" then
-					return self:Own(signal:Connect(callback))
-				end
-				return nil
-			end
 
 			local function findLabel(names)
 				if not frame then return nil end
@@ -7404,24 +7284,10 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				return self
 			end
 			function control:Destroy()
-				if self._destroyed then return nil end
-				self._destroyed = true
 				if type(self.Clear) == "function" then pcall(function() self:Clear() end) end
-				local function cleanupList(list)
-					for _, item in ipairs(list or {}) do
-						pcall(function()
-							if type(item) == "function" then item()
-							elseif item and item.Disconnect then item:Disconnect() end
-						end)
-					end
-				end
-				cleanupList(self._dragConns)
-				cleanupList(self._conns)
-				if self._controlId then
-					GUI._controls[self._controlId] = nil
-					GUI._configControls[self._controlId] = nil
-				end
-				GUI:ReleaseOwner(self._ownerKey, "control-destroy")
+				if self._dragConns then for _, c in ipairs(self._dragConns) do pcall(function() c:Disconnect() end) end end
+				if self._conns then for _, c in ipairs(self._conns) do pcall(function() c:Disconnect() end) end end
+				if self.frame then pcall(function() self.frame:Destroy() end) end
 				return nil
 			end
 			return _registerUsabilityControl(control, opts)
@@ -8145,10 +8011,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			local function cleanupDragConnections()
 				for i = #Slider._dragConns, 1, -1 do
 					local c = Slider._dragConns[i]
-					pcall(function()
-						if type(c) == "function" then c()
-						elseif c and c.Disconnect then c:Disconnect() end
-					end)
+					pcall(function() if c and c.Disconnect then c:Disconnect() end end)
 					Slider._dragConns[i] = nil
 				end
 			end
@@ -8215,19 +8078,18 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 					local x = Slider._dragLastX
 					if x then render(valueFromX(x), false) end
 				end)
-				local dragId = "slider:" .. tostring(Slider)
-				local moveConn = GUI:_registerInputHandler("changed", dragId, function(input)
+				local moveConn = UIS.InputChanged:Connect(function(input)
 					if not Slider.Dragging then return end
 					if input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch then
 						Slider._dragLastX=input.Position.X
 					end
-				end, "slider")
-				local endConn = GUI:_registerInputHandler("ended", dragId .. ":end", function(input)
+				end)
+				local endConn = UIS.InputEnded:Connect(function(input)
 					if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
 						if Slider._dragLastX then render(valueFromX(Slider._dragLastX), false, true) end
 						finishDrag()
 					end
-				end, "slider")
+				end)
 				table.insert(Slider._dragConns, renderConn)
 				table.insert(Slider._dragConns, moveConn)
 				table.insert(Slider._dragConns, endConn)
@@ -8756,19 +8618,18 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				table.insert(CP._conns, tr.InputBegan:Connect(function(i)
 					if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag2=true; upd2(i.Position.X) end
 				end))
-				local inputId = "color:" .. tostring(CP) .. ":" .. tostring(name)
-				table.insert(CP._conns, GUI:_registerInputHandler("changed", inputId, function(i)
+				table.insert(CP._conns, UIS.InputChanged:Connect(function(i)
 					if drag2 and (i.UserInputType==Enum.UserInputType.MouseMovement or i.UserInputType==Enum.UserInputType.Touch) then upd2(i.Position.X) end
-				end, "color-picker"))
-				table.insert(CP._conns, GUI:_registerInputHandler("ended", inputId .. ":end", function(i)
+				end))
+				table.insert(CP._conns, UIS.InputEnded:Connect(function(i)
 					if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then drag2=false end
-				end, "color-picker"))
+				end))
 			end
 			makeHSVSlider("H",h_v,function(a) h_v=a end, Color3.fromRGB(255,90,160))
 			makeHSVSlider("S",s_v,function(a) s_v=a end, Color3.fromRGB(100,150,255))
 			makeHSVSlider("V",v_v,function(a) v_v=a end, Color3.fromRGB(245,245,245))
 			CP.frame.AncestryChanged:Connect(function()
-				if not CP.frame:IsDescendantOf(game) then for _,c in ipairs(CP._conns) do pcall(function() if type(c)=="function" then c() elseif c and c.Disconnect then c:Disconnect() end end) end end
+				if not CP.frame:IsDescendantOf(game) then for _,c in ipairs(CP._conns) do pcall(function() c:Disconnect() end) end end
 			end)
 			header.MouseButton1Click:Connect(function()
 				if CP.Disabled then return end
@@ -10299,14 +10160,6 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end -- GUI:CreateTab
 
 
-	function GUI:CreateLazyTab(tabOptions, builder)
-		tabOptions = type(tabOptions) == "table" and table.clone(tabOptions) or {name=tostring(tabOptions or "Tab")}
-		tabOptions.lazy = true
-		local tab = GUI:CreateTab(tabOptions)
-		if type(builder) == "function" then tab:BuildLazy(builder) end
-		return tab
-	end
-
 	function GUI:GetNormalizedPosition()
 		local camera = workspace.CurrentCamera
 		local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
@@ -10329,72 +10182,11 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 
 
-
-	function GUI:GetSelectedTabName()
-		return GUI.CurrentTab and GUI.CurrentTab._name or nil
-	end
-
-	function GUI:SelectTab(name)
-		name = tostring(name or "")
-		for _, tab in ipairs(GUI._tabs or {}) do
-			if tostring(tab._name or "") == name and type(tab.Activate) == "function" then
-				tab:Activate()
-				return true
-			end
-		end
-		return false
-	end
-
-	function GUI:ExportHotReloadState()
-		local state = {
-			version=Library.Version,
-			selectedTab=GUI:GetSelectedTabName(),
-			minimized=GUI:IsMinimized(),
-			open=GUI._open ~= false,
-			theme=GUI:GetTheme(),
-			accent=GUI:GetAccent(),
-			scale=GUI:GetScale(),
-			normalizedPosition=GUI:GetNormalizedPosition(),
-			keybinds=GUI:GetKeybinds(),
-		}
-		if type(GUI.GetConfigSnapshot) == "function" then
-			local ok, snapshot = pcall(function() return GUI:GetConfigSnapshot(true) end)
-			if ok then state.config = snapshot end
-		end
-		return state
-	end
-
-	function GUI:ImportHotReloadState(state, fireCallbacks)
-		if type(state) ~= "table" then return false, "state must be a table" end
-		local callbackMode = fireCallbacks == true
-		if type(state.config) == "table" and type(GUI.ApplyConfigSnapshot) == "function" then
-			local ok, err = GUI:ApplyConfigSnapshot(state.config, callbackMode)
-			if ok == false then return false, err or "config transfer failed" end
-		end
-		if state.theme and type(GUI.SetTheme) == "function" then GUI:SetTheme(state.theme) end
-		if typeof(state.accent) == "Color3" and type(GUI.SetAccent) == "function" then GUI:SetAccent(state.accent, true) end
-		if tonumber(state.scale) and type(GUI.SetScale) == "function" then GUI:SetScale(state.scale, true) end
-		if options.hotReloadTransferPosition ~= false and typeof(state.normalizedPosition) == "Vector2" then
-			GUI:SetNormalizedPosition(state.normalizedPosition.X, state.normalizedPosition.Y)
-		end
-		if options.hotReloadTransferSelectedTab ~= false and state.selectedTab then GUI:SelectTab(state.selectedTab) end
-		if type(state.keybinds) == "table" and state.keybinds.toggle and type(GUI.SetKeybind) == "function" then
-			GUI:SetKeybind("toggle", state.keybinds.toggle)
-		end
-		if state.minimized == true then GUI:SetMinimized(true) end
-		GUI._open = state.open ~= false
-		_syncOpenVisibility()
-		return true
-	end
-
-
 	function GUI:GetReexecutePolicy()
 		return {
 			reuseExisting = options.reuseExisting ~= false,
 			mode = tostring(options.reuseExistingMode or "respawn"):lower(),
 			replaceExistingOnExecute = options.replaceExistingOnExecute ~= false,
-			atomicReplace = options.atomicReplace ~= false,
-			preserveState = options.preserveState ~= false,
 			forceRebuild = options.forceRebuild == true,
 			respawnReuseWindow = tonumber(options.respawnReuseWindow) or 6,
 			lastBuilderAction = tostring(_runtimeRoot.lastBuilderAction or "none"),
@@ -11731,35 +11523,6 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		return true, nil
 	end
 
-	function GUI:GetConfigBackupPath(profileName)
-		if profileName then
-			local profile = _profileSanitize(profileName)
-			return V._cfgProfileFolder .. "/" .. _profileFileName(profile) .. ".bak"
-		end
-		return V._cfgFile .. ".bak"
-	end
-
-	function GUI:WasConfigRecoveredFromBackup()
-		return GUI._configRecoveredFromBackup == true
-	end
-
-	function GUI:RestoreConfigBackup(profileName)
-		if profileName then _setConfigProfileInternal(profileName) end
-		if not hasFileAPI() then return false, "file API unsupported" end
-		local backupPath = V._cfgFile .. ".bak"
-		local existsOK, exists = pcall(isfile, backupPath)
-		if not existsOK or not exists then return false, "backup not found" end
-		local readOK, raw = pcall(readfile, backupPath)
-		if not readOK or type(raw) ~= "string" or raw == "" then return false, "backup unreadable" end
-		local decodeOK, data = pcall(function() return GUI:_decodeConfig(raw) end)
-		if not decodeOK or type(data) ~= "table" or not next(data) then return false, "backup invalid" end
-		local writeOK, writeErr = pcall(writefile, V._cfgFile, raw)
-		if not writeOK then return false, tostring(writeErr) end
-		GUI._configRecoveredFromBackup = true
-		GUI:ApplyConfig(data, false)
-		return true, data
-	end
-
 	function GUI:SaveProfile(profileName)
 		if profileName then _setConfigProfileInternal(profileName) end
 		_addProfileToIndex(V._cfgProfile)
@@ -12197,22 +11960,11 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		if not hasFileAPI() then return nil end
 		local exists, targetFile = _profileExists(V._cfgProfile)
 		if not exists then return nil end
-		local function decodeFile(path)
-			local ok, raw = pcall(readfile, path)
-			if not ok or not raw or raw == "" then return nil end
-			local decodedOK, data = pcall(function() return GUI:_decodeConfig(raw) end)
-			if not decodedOK or type(data) ~= "table" or not next(data) then return nil end
-			return data
-		end
-		local data = decodeFile(targetFile)
-		if data then GUI._configRecoveredFromBackup = false; return data end
-		local backup = decodeFile(targetFile .. ".bak")
-		if backup then
-			GUI._configRecoveredFromBackup = true
-			warn("[VenturaUI] Current config was invalid; loaded the last valid backup.")
-			return backup
-		end
-		return nil
+		local ok, raw = pcall(readfile, targetFile)
+		if not ok or not raw or raw == "" then return nil end
+		local ok2, data = pcall(function() return GUI:_decodeConfig(raw) end)
+		if not ok2 or type(data) ~= "table" or not next(data) then return nil end
+		return data
 	end
 
 	function GUI:SaveConfig(force, profileName)
@@ -12232,17 +11984,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				_ensureConfigFolders()
 				_unmarkProfileDeleted(V._cfgProfile)
 				_addProfileToIndex(V._cfgProfile)
-				local existsOK, exists = pcall(isfile, V._cfgFile)
-				if existsOK and exists then
-					local readOK, previous = pcall(readfile, V._cfgFile)
-					if readOK and type(previous) == "string" and previous ~= "" then
-						pcall(writefile, V._cfgFile .. ".bak", previous)
-					end
-				end
-				local payload = GUI:_configPayload()
-				writefile(V._cfgFile, payload)
-				local verifyOK, verifyRaw = pcall(readfile, V._cfgFile)
-				if not verifyOK or verifyRaw ~= payload then error("config write verification failed") end
+				writefile(V._cfgFile, GUI:_configPayload())
 				if _readAutoLoadEnabled() then _writeAutoLoadProfile(V._cfgProfile) end
 			end)
 			if ok then GUI._configDirty = false else warn("[VenturaUI] SaveConfig failed: " .. tostring(err)) end
@@ -13537,17 +13279,13 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end
 	GUI.StatusCard = GUI.CreateStatusCard
 
-	function GUI:_StopTaskObject(taskInfo, reason)
+	function GUI:_StopTaskObject(taskInfo)
 		if not taskInfo then return false end
 		taskInfo.Running = false
 		taskInfo.Stopped = true
-		if taskInfo.Token then
-			taskInfo.Token.Cancelled = true
-			taskInfo.Token.Reason = tostring(reason or taskInfo.Token.Reason or "stopped")
-		end
 		if type(taskInfo.Cleanup) == "function" and not taskInfo._cleanupRan then
 			taskInfo._cleanupRan = true
-			pcall(taskInfo.Cleanup, taskInfo.Token, taskInfo)
+			pcall(taskInfo.Cleanup, taskInfo)
 		end
 		return true
 	end
@@ -13557,39 +13295,28 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		if type(callback) ~= "function" then return nil end
 		options = type(options) == "table" and options or {}
 		name = tostring(name or ("Task_" .. tostring(os.clock()):gsub("%.", "_")))
-		if options.replace ~= false then GUI:StopTask(name, "replaced") end
-		local taskInfo = {Name=name, Running=true, Stopped=false, Started=os.clock(), Cleanup=nil}
-		local token = {Cancelled=false, Reason=nil, Name=name, Started=taskInfo.Started}
-		function token:Alive()
-			return not self.Cancelled and not _destroyed and GUI._activityStopped ~= true and taskInfo.Running == true
-		end
-		function token:IsCancelled() return not self:Alive() end
-		function token:Cancel(reason) return GUI:StopTask(name, reason or "cancelled") end
-		function token:ThrowIfCancelled()
-			if not self:Alive() then error("task cancelled: " .. tostring(self.Reason or "stopped"), 2) end
-			return true
-		end
-		function token:Wait(seconds)
-			local deadline = os.clock() + math.max(0, tonumber(seconds) or 0)
-			repeat task.wait(math.min(0.1, math.max(0, deadline - os.clock()))) until os.clock() >= deadline or not self:Alive()
-			return self:Alive()
-		end
-		setmetatable(token, {__call=function(self) return not self:Alive() end})
-		taskInfo.Token = token
-		function taskInfo:Stop(reason) return GUI:StopTask(self.Name, reason) end
-		function taskInfo:IsRunning() return self.Token and self.Token:Alive() or false end
+		if options.replace ~= false then GUI:StopTask(name) end
+		local taskInfo = {
+			Name = name,
+			Running = true,
+			Stopped = false,
+			Started = os.clock(),
+			Cleanup = nil,
+		}
+		function taskInfo:Stop() return GUI:StopTask(self.Name) end
+		function taskInfo:IsRunning() return self.Running == true and self.Stopped ~= true end
 		GUI._tasks[name] = taskInfo
+		local function stopRequested()
+			return _destroyed == true or GUI._activityStopped == true or taskInfo.Stopped == true or taskInfo.Running ~= true
+		end
 		taskInfo.Thread = task.spawn(function()
-			local ok, result = GUI:_invokeCallback("task:" .. name, callback, token, taskInfo)
+			local ok, result = pcall(callback, stopRequested, taskInfo)
 			if ok and type(result) == "function" then taskInfo.Cleanup = result end
-			if not ok and result ~= "callback re-entry blocked" then
-				warn("[VenturaUI] Task '" .. tostring(name) .. "' failed: " .. tostring(result))
-			end
-		taskInfo.Running = false
+			if not ok then warn("[VenturaUI] Task '" .. tostring(name) .. "' failed: " .. tostring(result)) end
+			taskInfo.Running = false
 		end)
 		return taskInfo
 	end
-	GUI.StartTask = GUI.Task
 
 	function GUI:Loop(name, seconds, callback, runNow)
 		seconds = math.max(0.03, tonumber(seconds) or 1)
@@ -13611,19 +13338,17 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		return GUI:Loop(nameOrSeconds, secondsOrCallback, callbackOrRunNow, runNow)
 	end
 
-	function GUI:StopTask(name, reason)
+	function GUI:StopTask(name)
 		local taskInfo = GUI._tasks[tostring(name or "")]
 		if not taskInfo then return false end
-		GUI:_StopTaskObject(taskInfo, reason or "stopped")
+		GUI:_StopTaskObject(taskInfo)
 		GUI._tasks[tostring(name or "")] = nil
 		return true
 	end
-	GUI.CancelTask = GUI.StopTask
-	function GUI:GetTask(name) return GUI._tasks[tostring(name or "")] end
 
 	function GUI:StopAllTasks()
 		for name, taskInfo in pairs(GUI._tasks or {}) do
-			GUI:_StopTaskObject(taskInfo, "stop-all")
+			GUI:_StopTaskObject(taskInfo)
 			GUI._tasks[name] = nil
 		end
 		return true
@@ -13684,51 +13409,6 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end)() -- status/task utility module
 	end)() -- visual/control engine module
 
-	local function _commitWindowBuild()
-		if _atomicStaging then
-			local transferOK, transferResult, transferError = pcall(function()
-				if _replacementState and options.preserveState ~= false then
-					local ok, err = GUI:ImportHotReloadState(_replacementState, options.hotReloadCallbacks == true)
-					if ok == false then error(err or "state transfer failed") end
-				end
-				return true
-			end)
-			if not transferOK or transferResult ~= true then
-				_runtimeRoot.lastBuilderAction = "atomic-transfer-failed"
-				_runtimeRoot.lastHotReloadError = tostring(transferError or transferResult)
-				_runtimeRoot.pendingStaging = nil
-				_runtimeRoot.pendingStagingCleanup = nil
-				pcall(function() GUI:HardClose() end)
-				if options.hotReloadKeepOldOnError ~= false then
-					_runtimeRoot.activeWindow = _replacementOldWindow
-					_runtimeRoot.activeScreenGui = _replacementOldScreenGui
-				end
-				error("VenturaUI atomic state transfer failed: " .. tostring(transferError or transferResult), 0)
-			end
-
-			if _replacementOldWindow and type(_replacementOldWindow.HardClose) == "function" then
-				pcall(function() _replacementOldWindow:HardClose() end)
-			elseif _replacementOldScreenGui then
-				pcall(function() if _replacementOldScreenGui.Parent then _replacementOldScreenGui:Destroy() end end)
-			end
-			SG.Name = "VenturaUI"
-			SG.Enabled = true
-			_runtimeRoot.pendingStaging = nil
-			_runtimeRoot.pendingStagingCleanup = nil
-			_runtimeRoot.lastBuilderAction = "atomic-replaced-existing"
-			_runtimeRoot.lastHotReloadError = nil
-		end
-
-		_runtimeRoot.activeWindow = GUI
-		_runtimeRoot.activeScreenGui = SG
-		_runtimeRoot.activeCharacter = LP.Character
-		_runtimeRoot.respawnCharacter = nil
-		_runtimeRoot.respawnGuardUntil = 0
-		_runtimeRoot.respawnReuseCredits = 0
-		return true
-	end
-
-	_commitWindowBuild()
 	return GUI
 end -- Library:new
 
@@ -13864,7 +13544,7 @@ function Library:GetAnimationStyles()
 end
 
 function Library:SelfTest()
-	local stabilityFeatures = {"atomic-hot-reload","state-transfer","owned-cleanup","single-input-dispatcher","callback-recovery","control-registry","reactive-values","lazy-builders","config-backup","cancellation-tokens","performance-mode","normalized-position"}
+	local stabilityFeatures = {"owned-cleanup","shared-input","callback-diagnostics","control-registry","reactive-values","lazy-builders","config-migrations","performance-mode","normalized-position"}
 	local guiParentName = "unknown"
 	pcall(function()
 		local parent = getScreenGuiParent()
@@ -13880,7 +13560,6 @@ function Library:SelfTest()
 		keyboard = UIS.KeyboardEnabled == true,
 		studio = RunService:IsStudio() == true,
 		guiParent = guiParentName,
-		features = stabilityFeatures,
 		runtime = Library:GetRuntimeCounts(),
 	}
 end
