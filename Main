@@ -18,7 +18,7 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.96-stability-core"
+Library.Version = "5.97-reexecute-replacement-fix"
 
 -- ══════════════════════════════════════════════════════════════════════
 -- RUNTIME GUARD
@@ -39,6 +39,9 @@ local _runtimeRoot do
 	env.__VenturaUIRuntime.activeScreenGui = env.__VenturaUIRuntime.activeScreenGui or nil
 	env.__VenturaUIRuntime.activeCharacter = env.__VenturaUIRuntime.activeCharacter or nil
 	env.__VenturaUIRuntime.respawnGuardUntil = tonumber(env.__VenturaUIRuntime.respawnGuardUntil) or 0
+	env.__VenturaUIRuntime.respawnReuseCredits = math.max(0, math.floor(tonumber(env.__VenturaUIRuntime.respawnReuseCredits) or 0))
+	env.__VenturaUIRuntime.respawnCharacter = env.__VenturaUIRuntime.respawnCharacter or nil
+	env.__VenturaUIRuntime.lastBuilderAction = tostring(env.__VenturaUIRuntime.lastBuilderAction or "none")
 	_runtimeRoot = env.__VenturaUIRuntime
 end
 
@@ -2152,8 +2155,11 @@ function Library:new(options)
 		statusBarWidth     = nil,
 		statusBarHeight    = nil,
 		destroyOnRespawn= false,
-		forceRebuild     = false, -- explicitly destroy/recreate an existing Ventura window
-		reuseExisting    = true,  -- persistent singleton; prevents respawn/script reruns rebuilding the UI
+		forceRebuild     = false, -- always replace the current window for this builder pass
+		reuseExisting    = true,  -- allows respawn-only duplicate absorption
+		reuseExistingMode = "respawn", -- "respawn" (default), "always", or "never"
+		replaceExistingOnExecute = true, -- normal re-execution destroys and replaces the old UI
+		respawnReuseWindow = 6, -- seconds in which one immediate respawn builder pass may be absorbed
 		reconnectOnRespawn = false, -- opt-in only; prevents heavy callbacks replaying after every respawn
 		reconnectDelay   = 0.85,
 		keyEnabled      = false,
@@ -2202,11 +2208,11 @@ function Library:new(options)
 	end
 	if options.accent then Library.Theme.Accent=options.accent end
 
-	-- Persistent singleton guard. ResetOnSpawn=false preserves the ScreenGui, but
-	-- StarterCharacterScripts / auto-execute loaders can run the complete script again
-	-- at any time after respawn. A time window or Character comparison is therefore
-	-- unreliable. While the current Ventura ScreenGui is alive, every later builder
-	-- pass is absorbed unless forceRebuild=true is explicitly requested.
+	-- Re-execution policy:
+	--   • Normal execution replaces the old UI.
+	--   • The immediate auto-execute pass after CharacterAdded may be absorbed once.
+	--   • forceRebuild=true always replaces.
+	--   • reuseExistingMode="always" restores the old permanent-singleton behavior.
 	local _activeWindow = _runtimeRoot.activeWindow
 	local _activeScreenGui = _runtimeRoot.activeScreenGui
 	local _activeAlive = false
@@ -2217,11 +2223,48 @@ function Library:new(options)
 			and _activeScreenGui:IsA("ScreenGui")
 	end)
 
-	if _activeAlive and options.reuseExisting ~= false and options.forceRebuild ~= true then
+	local _reuseMode = tostring(options.reuseExistingMode or "respawn"):lower()
+	if _reuseMode ~= "respawn" and _reuseMode ~= "always" and _reuseMode ~= "never" then
+		_reuseMode = "respawn"
+	end
+
+	local _forceRebuild = options.forceRebuild == true
+	local _reuseAllowed = options.reuseExisting ~= false and _reuseMode ~= "never"
+	local _insideRespawnWindow = os.clock() <= (tonumber(_runtimeRoot.respawnGuardUntil) or 0)
+	local _sameRespawnCharacter = _runtimeRoot.respawnCharacter ~= nil
+		and _runtimeRoot.respawnCharacter == LP.Character
+	local _hasRespawnCredit = (tonumber(_runtimeRoot.respawnReuseCredits) or 0) > 0
+	local _isRespawnBuilderPass = _activeAlive
+		and _reuseAllowed
+		and _reuseMode == "respawn"
+		and _insideRespawnWindow
+		and _sameRespawnCharacter
+		and _hasRespawnCredit
+	local _alwaysReuse = _activeAlive
+		and _reuseAllowed
+		and _reuseMode == "always"
+
+	if not _forceRebuild and (_isRespawnBuilderPass or _alwaysReuse) then
+		if _isRespawnBuilderPass then
+			_runtimeRoot.respawnReuseCredits = math.max(
+				0,
+				(tonumber(_runtimeRoot.respawnReuseCredits) or 1) - 1
+			)
+			_runtimeRoot.lastBuilderAction = "reused-after-respawn"
+		else
+			_runtimeRoot.lastBuilderAction = "reused-always"
+		end
 		_runtimeRoot.activeCharacter = LP.Character
 		return _makeRespawnBuilderSink(_activeWindow)
 	end
 
+	-- Default behavior for a normal second execution: stop the old callbacks,
+	-- destroy the old ScreenGui, and build the newest version.
+	if _activeAlive then
+		_runtimeRoot.lastBuilderAction = "replaced-existing"
+	else
+		_runtimeRoot.lastBuilderAction = "created-new"
+	end
 	destroyExistingVenturaGUI()
 
 	local keys            = {toggle=_safeEnumKey(options.toggleKey, Enum.KeyCode.Insert)}
@@ -2979,6 +3022,7 @@ function Library:new(options)
 				owners=GUI:GetOwnerStats(),
 				callbacks=GUI:GetCallbackDiagnostics(),
 				performance=GUI:GetPerformanceState(),
+				reexecution=GUI:GetReexecutePolicy(),
 				position=MainWrap and MainWrap.Position or nil,
 			}
 		end
@@ -3101,7 +3145,9 @@ function Library:new(options)
 	_runtimeRoot.activeWindow = GUI
 	_runtimeRoot.activeScreenGui = SG
 	_runtimeRoot.activeCharacter = LP.Character
+	_runtimeRoot.respawnCharacter = nil
 	_runtimeRoot.respawnGuardUntil = 0
+	_runtimeRoot.respawnReuseCredits = 0
 	if _ttConn then track(_ttConn) end
 
 	-- Register-safe module boundary: visual engine, controls, config, and utilities.
@@ -3297,6 +3343,16 @@ function Library:new(options)
 	-- explicitly enables reconnectOnRespawn.
 	track(LP.CharacterAdded:Connect(function(character)
 		_runtimeRoot.activeCharacter = character
+		_runtimeRoot.respawnCharacter = character
+		_runtimeRoot.respawnGuardUntil = os.clock() + math.clamp(
+			tonumber(options.respawnReuseWindow) or 6,
+			1,
+			20
+		)
+		-- One credit absorbs one immediate auto-execute builder pass. It does not
+		-- block later manual executions from replacing the current UI.
+		_runtimeRoot.respawnReuseCredits = 1
+		_runtimeRoot.lastBuilderAction = "character-respawned"
 		GUI._respawnToken = (GUI._respawnToken or 0) + 1
 
 		-- Stop an in-progress mouse/touch operation so a destroyed input object
@@ -10122,6 +10178,25 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		MainWrap.Position = position
 		_runtimeRoot.windowPosition = position
 		return position
+	end
+
+
+
+	function GUI:GetReexecutePolicy()
+		return {
+			reuseExisting = options.reuseExisting ~= false,
+			mode = tostring(options.reuseExistingMode or "respawn"):lower(),
+			replaceExistingOnExecute = options.replaceExistingOnExecute ~= false,
+			forceRebuild = options.forceRebuild == true,
+			respawnReuseWindow = tonumber(options.respawnReuseWindow) or 6,
+			lastBuilderAction = tostring(_runtimeRoot.lastBuilderAction or "none"),
+			respawnReuseCredits = tonumber(_runtimeRoot.respawnReuseCredits) or 0,
+			respawnGuardUntil = tonumber(_runtimeRoot.respawnGuardUntil) or 0,
+		}
+	end
+
+	function GUI:GetLastBuilderAction()
+		return tostring(_runtimeRoot.lastBuilderAction or "none")
 	end
 
 
