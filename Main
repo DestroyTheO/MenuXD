@@ -18,11 +18,11 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.99.2-layout-usability-suite"
+Library.Version = "5.99.3-dropdown-state-fix"
 Library.Product = "MenuXD"
-Library.BuildId = "5.99.2.20260718.620a32a7ae"
-Library.BuildTimestamp = "2026-07-18T00:00:00Z"
-Library.SourceHash = "620a32a7ae2bce3c5af474ec9988f6338e99e7b3bd744f2f465f2c5e9f49659c"
+Library.BuildId = "5.99.3.20260718.d0b68cebd2"
+Library.BuildTimestamp = "2026-07-18T21:27:03.647880Z"
+Library.SourceHash = "d0b68cebd2dad0849f53de22caceb7992584c51fc11d873a62f626eafe71dae7"
 Library.SourceHashMode = "metadata-normalized-sha256"
 Library.ReleaseChannel = "stable"
 
@@ -3371,9 +3371,18 @@ function Library:new(options)
 			return true
 		end
 
-		function GUI:CloseAllPopups(exceptPopup)
+		local function _runPopupHook(record, hookName, reason)
+			if not record then return end
+			local hook = record[hookName]
+			if type(hook) == "function" then
+				local ok, err = pcall(hook, record.popup, record, reason)
+				if not ok then warn("[VenturaUI] Popup " .. tostring(hookName) .. " failed: " .. tostring(err)) end
+			end
+		end
+
+		function GUI:CloseAllPopups(exceptPopup, reason)
 			for popup in pairs(GUI._popupRegistry) do
-				if popup ~= exceptPopup and popup and popup.Parent then popup.Visible = false end
+				if popup ~= exceptPopup then GUI:ClosePopup(popup, reason or "close-all") end
 			end
 			return true
 		end
@@ -3383,16 +3392,21 @@ function Library:new(options)
 			if not record then return false end
 			if anchor then record.anchor = anchor end
 			for key, value in pairs(type(config) == "table" and config or {}) do record[key] = value end
-			GUI:CloseAllPopups(popup)
+			GUI:CloseAllPopups(popup, "another-popup-opened")
 			GUI._popupSerial = GUI._popupSerial + 1
 			GUI:ApplyZLayer(popup, GUI:GetZLayer(record.layer) + (GUI._popupSerial % 80), true)
+			local wasVisible = popup.Visible == true
 			popup.Visible = true
 			GUI:PositionPopup(popup, record.anchor, record.width, record.height, record.preferredDirection)
+			if not wasVisible then _runPopupHook(record, "onOpen", "open") end
 			return true
 		end
 
-		function GUI:ClosePopup(popup)
+		function GUI:ClosePopup(popup, reason)
+			local record = GUI._popupRegistry[popup]
+			local wasVisible = popup and popup.Parent and popup.Visible == true
 			if popup and popup.Parent then popup.Visible = false end
+			if wasVisible then _runPopupHook(record, "onClose", reason or "close") end
 			return true
 		end
 
@@ -9189,6 +9203,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			if opts.multi and type(opts.default)=="table" then for _,v in ipairs(opts.default) do DD.Multi[v]=true end end
 			local hasDesc=tostring(opts.description or "") ~= ""
 			local closedH=hasDesc and 64 or 54
+			local rowH=34
+			local maxVisible=math.clamp(tonumber(opts.maxVisible) or 7, 2, 15)
 			DD.frame=base("Dropdown",closedH); DD.frame.ClipsDescendants=false; pad(DD.frame,0,0,0,0)
 			local st=DD.frame:FindFirstChildOfClass("UIStroke")
 			local header=Instance.new("TextButton",DD.frame)
@@ -9224,21 +9240,42 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			optPanel.Visible=false; optPanel.ZIndex=4
 			corner(optPanel,9); stroke(optPanel,Library.Theme.BorderHover,1.25)
 			GUI:RegisterPopup(optPanel, DD.frame, {layer="dropdown", preferredDirection=options.popupPreferredDirection})
-			local optHolder=Instance.new("Frame",optPanel)
+			local optHolder=Instance.new("ScrollingFrame",optPanel)
 			optHolder.BackgroundTransparency=1; optHolder.BorderSizePixel=0
 			optHolder.Size=UDim2.new(1,-14,0,0); optHolder.Position=UDim2.new(0,7,0,7)
 			optHolder.Visible=true; optHolder.ZIndex=5
+			optHolder.CanvasSize=UDim2.new(0,0,0,0)
+			optHolder.AutomaticCanvasSize=Enum.AutomaticSize.None
+			optHolder.ScrollBarThickness=2
+			optHolder.ScrollBarImageColor3=Library.Theme.BorderHover
+			optHolder.ScrollingDirection=Enum.ScrollingDirection.Y
+			optHolder.ElasticBehavior=Enum.ElasticBehavior.Never
+			optHolder.ClipsDescendants=true
 			local ol=Instance.new("UIListLayout",optHolder); ol.Padding=UDim.new(0,5); ol.SortOrder=Enum.SortOrder.LayoutOrder
-			local function setOpen(v)
-				DD.Open=v==true
-				if DD.Open then GUI:OpenPopup(optPanel, DD.frame, {layer="dropdown", height=optPanel.AbsoluteSize.Y > 0 and optPanel.AbsoluteSize.Y or 120}) else GUI:ClosePopup(optPanel) end
+			local function applyOpenVisuals(open)
+				DD.Open = open == true
 				tw(arrowImg,{Rotation=DD.Open and 180 or 0})
 				tw(st,{Color=DD.Open and Library.Theme.BorderHover or Library.Theme.Border})
 				tw(valueStroke,{Color=DD.Open and Library.Theme.Accent or Library.Theme.BorderHover})
 			end
+			local function setOpen(v)
+				local open = v == true
+				if open then
+					GUI:OpenPopup(optPanel, DD.frame, {layer="dropdown", height=optPanel.AbsoluteSize.Y > 0 and optPanel.AbsoluteSize.Y or 120})
+				else
+					GUI:ClosePopup(optPanel, "dropdown-close")
+				end
+				applyOpenVisuals(open)
+			end
+			GUI:UpdatePopup(optPanel, {
+				onClose=function() applyOpenVisuals(false) end,
+				onOpen=function() applyOpenVisuals(true) end,
+			})
+			DD._popup=optPanel
+			DD._setOpen=setOpen
 			local function refresh()
 				for _,c in ipairs(optHolder:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
-				local rowH,total=34,0
+				local total=0
 				for _,item in ipairs(opts.items) do
 					local isSel=(opts.multi and DD.Multi[item]) or (not opts.multi and DD.Selected==item)
 					local opt=Instance.new("TextButton",optHolder)
@@ -9273,9 +9310,12 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 					total=total+rowH+5
 				end
 				total=math.max(total-5,0)
-				optHolder.Size=UDim2.new(1,-14,0,total)
+				local visibleRows=math.min(math.max(#opts.items,1), maxVisible)
+				local visibleHeight=(visibleRows*rowH)+math.max(visibleRows-1,0)*5
+				optHolder.Size=UDim2.new(1,-14,0,visibleHeight)
+				optHolder.CanvasSize=UDim2.new(0,0,0,total)
 				local panelWidth = math.max(180, DD.frame.AbsoluteSize.X - 24)
-				local panelHeight = math.max(28, total + 14)
+				local panelHeight = math.max(28, visibleHeight + 14)
 				optPanel.Size=UDim2.new(0,panelWidth,0,panelHeight)
 				GUI:UpdatePopup(optPanel, {width=panelWidth, height=panelHeight})
 				DD.frame.Size=UDim2.new(1,0,0,closedH)
@@ -9372,11 +9412,17 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				end
 				return out
 			end
+			local function applyOpenVisuals(open)
+				DD.Open=open==true
+				tw(arrowImg,{Rotation=DD.Open and 180 or 0})
+				tw(st,{Color=DD.Open and Library.Theme.BorderHover or Library.Theme.Border})
+				tw(valueStroke,{Color=DD.Open and Library.Theme.Accent or Library.Theme.BorderHover})
+			end
 			local function setOpen(v)
-				DD.Open=v==true
-				if DD.Open then GUI:OpenPopup(optPanel, DD.frame, {layer="dropdown", height=optPanel.AbsoluteSize.Y > 0 and optPanel.AbsoluteSize.Y or 180}) else GUI:ClosePopup(optPanel) end
-				tw(arrowImg,{Rotation=DD.Open and 180 or 0}); tw(st,{Color=DD.Open and Library.Theme.BorderHover or Library.Theme.Border}); tw(valueStroke,{Color=DD.Open and Library.Theme.Accent or Library.Theme.BorderHover})
-				if DD.Open then
+				local open=v==true
+				if open then GUI:OpenPopup(optPanel, DD.frame, {layer="dropdown", height=optPanel.AbsoluteSize.Y > 0 and optPanel.AbsoluteSize.Y or 180}) else GUI:ClosePopup(optPanel, "search-dropdown-close") end
+				applyOpenVisuals(open)
+				if open then
 					if opts.clearSearchOnOpen == true and searchBox.Text ~= "" then
 						searchBox.Text = ""
 						DD._query = ""
@@ -9390,6 +9436,15 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 					pcall(function() searchBox:ReleaseFocus() end)
 				end
 			end
+			GUI:UpdatePopup(optPanel, {
+				onClose=function()
+					applyOpenVisuals(false)
+					pcall(function() searchBox:ReleaseFocus() end)
+				end,
+				onOpen=function() applyOpenVisuals(true) end,
+			})
+			DD._popup=optPanel
+			DD._setOpen=setOpen
 			local function refresh()
 				for _,c in ipairs(scroll:GetChildren()) do if c:IsA("TextButton") or c.Name=="DropdownEmpty" then c:Destroy() end end
 				local shown=filteredItems(); local total=0
@@ -9595,12 +9650,25 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			CP.frame.AncestryChanged:Connect(function()
 				if not CP.frame:IsDescendantOf(game) then for _,c in ipairs(CP._conns) do pcall(function() if type(c)=="function" then c() elseif c and c.Disconnect then c:Disconnect() end end) end end
 			end)
+			local function applyPickerOpen(open)
+				CP.Open=open==true
+				CP.frame.Size=UDim2.new(1,0,0,42)
+			end
+			local function setPickerOpen(open)
+				open=open==true
+				local pickerWidth=math.max(230, CP.frame.AbsoluteSize.X)
+				if open then GUI:OpenPopup(picker, CP.frame, {layer="colorpicker", width=pickerWidth, height=114}) else GUI:ClosePopup(picker, "color-picker-close") end
+				applyPickerOpen(open)
+			end
+			GUI:UpdatePopup(picker, {
+				onClose=function() applyPickerOpen(false) end,
+				onOpen=function() applyPickerOpen(true) end,
+			})
+			CP._popup=picker
+			CP._setOpen=setPickerOpen
 			header.MouseButton1Click:Connect(function()
 				if CP.Disabled then return end
-				CP.Open=not CP.Open
-				local pickerWidth=math.max(230, CP.frame.AbsoluteSize.X)
-				if CP.Open then GUI:OpenPopup(picker, CP.frame, {layer="colorpicker", width=pickerWidth, height=114}) else GUI:ClosePopup(picker) end
-				CP.frame.Size=UDim2.new(1,0,0,42)
+				setPickerOpen(not CP.Open)
 			end)
 			function CP:Set(c, silent)
 				if typeof(c) ~= "Color3" then return CP end
@@ -10930,16 +10998,28 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 							self.frame.Active = not self.Disabled
 							pcall(function() tw(self.frame, {BackgroundTransparency = self.Disabled and 0.35 or 0}, TI_FAST) end)
 						end
+						if self.Disabled and type(self._setOpen) == "function" then self._setOpen(false) end
+						return self
+					end
+					function dd:Open()
+						if type(self._setOpen) == "function" then self._setOpen(true) end
 						return self
 					end
 					function dd:Close()
-						self.Open = false
+						if type(self._setOpen) == "function" then
+							self._setOpen(false)
+						elseif self._popup then
+							GUI:ClosePopup(self._popup, "api-close")
+							self.Open = false
+						end
 						if self.frame then
-							local panel = self.frame:FindFirstChild("DropdownList", true)
-							if panel then panel.Visible = false end
 							local closedH = tostring(opts.description or "") ~= "" and 64 or 54
 							self.frame.Size = UDim2.new(1, 0, 0, closedH)
 						end
+						return self
+					end
+					function dd:ToggleOpen()
+						if type(self._setOpen) == "function" then self._setOpen(not self.Open) end
 						return self
 					end
 				end
@@ -10996,6 +11076,19 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 						function dd:SetDisabled(state)
 							self.Disabled = state == true
 							if self.frame then self.frame.Active = not self.Disabled end
+							if self.Disabled and type(self._setOpen) == "function" then self._setOpen(false) end
+							return self
+						end
+						function dd:Open()
+							if type(self._setOpen) == "function" then self._setOpen(true) end
+							return self
+						end
+						function dd:Close()
+							if type(self._setOpen) == "function" then self._setOpen(false) end
+							return self
+						end
+						function dd:ToggleOpen()
+							if type(self._setOpen) == "function" then self._setOpen(not self.Open) end
 							return self
 						end
 					end
