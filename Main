@@ -18,12 +18,12 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.99-compatibility-guard"
+Library.Version = "5.99.2-layout-usability-suite"
 Library.Product = "MenuXD"
-Library.BuildId = "5.99.1.20260718.68b99b4e88"
+Library.BuildId = "5.99.2.20260718.620a32a7ae"
 Library.BuildTimestamp = "2026-07-18T00:00:00Z"
-Library.SourceHash = "68b99b4e88b4d49f9ccd33224a8eb23b911556eae3686fcf5dcc120dbe03e648"
-Library.SourceHashMode = "normalized-sha256"
+Library.SourceHash = "620a32a7ae2bce3c5af474ec9988f6338e99e7b3bd744f2f465f2c5e9f49659c"
+Library.SourceHashMode = "metadata-normalized-sha256"
 Library.ReleaseChannel = "stable"
 
 -- ══════════════════════════════════════════════════════════════════════
@@ -1827,6 +1827,15 @@ do
 end
 
 local function tw(obj, goal, ti, cb)
+	-- v5.99.2 reduced-motion path: apply the final state immediately while
+	-- preserving callback behavior and the no-op tween compatibility object.
+	if _runtimeRoot and _runtimeRoot.reducedMotion == true and obj and type(goal) == "table" then
+		pcall(function()
+			for property, value in pairs(goal) do obj[property] = value end
+		end)
+		if cb then task.defer(function() pcall(cb) end) end
+		return _NOOP_TWEEN
+	end
 	-- v5.38: tween guard. Roblox can error if a control is destroyed while an
 	-- animation is being created/played. Return a no-op tween so callers remain safe.
 	if not obj or type(goal) ~= "table" then
@@ -2247,6 +2256,12 @@ function Library:new(options)
 		watermarkMaxWidth  = 1200, -- expanded manual width range
 		watermarkMinHeight = 24,
 		watermarkMaxHeight = 64,
+		statusBarMode      = "auto", -- auto, compact, or expanded
+		statusBarCompactBreakpoint = 620,
+		statusBarViewportMargin = 14,
+		statusBarLeft      = nil,
+		statusBarCenter    = nil,
+		statusBarRight     = nil,
 		topRightBarWidth   = nil,
 		topRightBarHeight  = nil,
 		statusBarWidth     = nil,
@@ -2269,6 +2284,23 @@ function Library:new(options)
 		configLastGood = true,
 		configChecksums = true,
 		minimalMode = false, -- disables decorative/background work while preserving controls
+		reducedMotion = false, -- instant transitions while preserving final visual states
+		popupClamp = true,
+		popupMargin = 8,
+		popupPreferredDirection = "auto", -- auto, down, or up
+		maxNotifications = 4,
+		notificationQueue = true,
+		notificationQueueLimit = 30,
+		globalSearch = true,
+		globalSearchPlaceholder = "Search all controls...",
+		controlValidation = true,
+		validationAutoRepair = true,
+		cleanupReportOnDestroy = true,
+		printCleanupReport = false,
+		mobileTouchTargets = true,
+		mobileTouchTargetHeight = 48,
+		mobileWindowPadding = 12,
+		mobileFontScale = 105,
 		cacheDiagnostics = true,
 		expectedVersion = nil,
 		expectedBuildId = nil,
@@ -2348,6 +2380,13 @@ function Library:new(options)
 		options.lazyTabs = true
 		options.loadingTime = 0
 	end
+	local _initialViewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+	local _deviceLayout = (MOBILE or _initialViewport.X < 720) and "mobile" or ((_initialViewport.X < 1050) and "compact" or "desktop")
+	if _deviceLayout == "mobile" then
+		options.fontScale = math.max(tonumber(options.fontScale or options.fontSize or 100) or 100, tonumber(options.mobileFontScale) or 105)
+	end
+	_runtimeRoot.reducedMotion = options.reducedMotion == true
+
 	if options.expectedVersion and tostring(options.expectedVersion) ~= Library.Version then
 		local message = "Expected MenuXD " .. tostring(options.expectedVersion) .. " but loaded " .. Library.Version
 		if options.strictCompatibility == true then error(message, 0) else warn("[VenturaUI] " .. message) end
@@ -2508,7 +2547,7 @@ function Library:new(options)
 		return UDim2.new(0, x, 0, y)
 	end
 
-	local GUI = {CurrentTab=nil, _tabs={}, _open=true, _accentObjects={}, _themeObjects={}, _themeListeners={}, _keybindWidgets={}, _activeKeybind=nil, _configControls={}, _controls={}, _toggleControls={}, _reconnectControls={}, _reconnectCallbacks={}, _loadedConfigData=nil, _configApplying=false, _destroyCallbacks={}, _cleanupCallbacks={}, _trackedProperties={}, _trackedHumanoidProperties={}, _trackedInstances={}, _ownerBuckets={}, _callbackStats={}, _callbackActive={}, _callbackHistory={}, _configMigrations={}, _values={}, _lastCallbackFailure=nil, _controlBuildErrors={}, _cleanupReports={}, _compatibilityReport=_compatibilityReport, _minimalMode=(options.minimalMode == true), _activityStopped=false, _closing=false, _reconnectEnabled=(options.reconnectOnRespawn == true), _reconnectDelay=tonumber(options.reconnectDelay) or 0.85, _respawnToken=0}
+	local GUI = {CurrentTab=nil, _tabs={}, _open=true, _accentObjects={}, _themeObjects={}, _themeListeners={}, _keybindWidgets={}, _activeKeybind=nil, _configControls={}, _controls={}, _toggleControls={}, _reconnectControls={}, _reconnectCallbacks={}, _loadedConfigData=nil, _configApplying=false, _destroyCallbacks={}, _cleanupCallbacks={}, _trackedProperties={}, _trackedHumanoidProperties={}, _trackedInstances={}, _ownerBuckets={}, _callbackStats={}, _callbackActive={}, _callbackHistory={}, _configMigrations={}, _values={}, _lastCallbackFailure=nil, _controlBuildErrors={}, _cleanupReports={}, _validationWarnings={}, _popupRegistry={}, _zLayers={}, _notificationQueue={}, _globalSearchQuery="", _compatibilityReport=_compatibilityReport, _minimalMode=(options.minimalMode == true), _reducedMotion=(options.reducedMotion == true), _deviceLayout=_deviceLayout, _activityStopped=false, _closing=false, _reconnectEnabled=(options.reconnectOnRespawn == true), _reconnectDelay=tonumber(options.reconnectDelay) or 0.85, _respawnToken=0}
 
 	-- v5.77 Safe / Slow Load ----------------------------------------------------
 	-- Heavy theme/settings pages can be built in small chunks. This keeps the UI
@@ -2614,6 +2653,9 @@ function Library:new(options)
 
 	-- Top-right watermark / mini bar stats state
 	V.wmFrame, V.wmLbl, V.wmBaseText = nil, nil, nil
+	V.wmLeftLbl, V.wmCenterLbl, V.wmRightLbl = nil, nil, nil
+	V.wmMode = tostring(options.statusBarMode or "auto"):lower()
+	V.wmCustomSections = {left=options.statusBarLeft, center=options.statusBarCenter, right=options.statusBarRight}
 	V.wmStatsVisible = true
 	V.wmRuntimeVisible = options.watermarkRuntime ~= false
 	V.wmRuntimeLabel = tostring(options.watermarkRuntimeLabel or "RAN")
@@ -3245,6 +3287,235 @@ function Library:new(options)
 		end))
 
 
+		-- v5.99.2 central Z-index and popup manager.
+		GUI._zLayers = {
+			base=0, controls=10, statusbar=500, dropdown=700, colorpicker=730,
+			notification=800, modal=900, tooltip=1000,
+		}
+		GUI._popupSerial = 0
+
+		function GUI:GetZLayer(name)
+			return tonumber(GUI._zLayers[tostring(name or "controls"):lower()]) or 10
+		end
+
+		function GUI:SetZLayer(name, value)
+			name = tostring(name or "controls"):lower()
+			value = math.floor(tonumber(value) or GUI:GetZLayer(name))
+			GUI._zLayers[name] = value
+			return value
+		end
+
+		function GUI:ApplyZLayer(root, layer, recursive)
+			if not root then return false end
+			local target = type(layer) == "number" and math.floor(layer) or GUI:GetZLayer(layer)
+			local original = tonumber(root.ZIndex) or 1
+			local delta = target - original
+			pcall(function() root.ZIndex = target end)
+			if recursive ~= false then
+				for _, child in ipairs(root:GetDescendants()) do
+					if child:IsA("GuiObject") then pcall(function() child.ZIndex = math.max(target, (tonumber(child.ZIndex) or original) + delta) end) end
+				end
+			end
+			return true
+		end
+
+		function GUI:PositionPopup(popup, anchor, width, height, preferredDirection)
+			if not popup or not anchor or not popup.Parent or not anchor.Parent then return nil end
+			local camera = workspace.CurrentCamera
+			local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+			local margin = math.max(2, tonumber(options.popupMargin) or 8)
+			local anchorPosition = anchor.AbsolutePosition
+			local anchorSize = anchor.AbsoluteSize
+			local popupWidth = math.clamp(math.floor(tonumber(width) or popup.AbsoluteSize.X or anchorSize.X), 120, math.max(120, viewport.X - margin * 2))
+			local popupHeight = math.clamp(math.floor(tonumber(height) or popup.AbsoluteSize.Y or 120), 30, math.max(30, viewport.Y - margin * 2))
+			local belowY = anchorPosition.Y + anchorSize.Y + 6
+			local aboveY = anchorPosition.Y - popupHeight - 6
+			local belowSpace = viewport.Y - belowY - margin
+			local aboveSpace = anchorPosition.Y - margin
+			local direction = tostring(preferredDirection or options.popupPreferredDirection or "auto"):lower()
+			if direction ~= "up" and direction ~= "down" then
+				direction = (belowSpace >= popupHeight or belowSpace >= aboveSpace) and "down" or "up"
+			end
+			if direction == "down" and belowSpace < popupHeight and aboveSpace > belowSpace then direction = "up" end
+			if direction == "up" and aboveSpace < popupHeight and belowSpace > aboveSpace then direction = "down" end
+			local x = math.clamp(anchorPosition.X, margin, math.max(margin, viewport.X - popupWidth - margin))
+			local y = direction == "up" and aboveY or belowY
+			y = math.clamp(y, margin, math.max(margin, viewport.Y - popupHeight - margin))
+			popup.AnchorPoint = Vector2.new(0, 0)
+			popup.Position = UDim2.new(0, math.floor(x + 0.5), 0, math.floor(y + 0.5))
+			popup.Size = UDim2.new(0, popupWidth, 0, popupHeight)
+			popup:SetAttribute("VenturaPopupDirection", direction)
+			return direction, popupWidth, popupHeight
+		end
+
+		function GUI:RegisterPopup(popup, anchor, config)
+			if not popup then return nil end
+			config = type(config) == "table" and config or {}
+			GUI._popupSerial = GUI._popupSerial + 1
+			local record = {
+				popup=popup, anchor=anchor, layer=config.layer or "dropdown",
+				preferredDirection=config.preferredDirection or "auto",
+				width=config.width, height=config.height, serial=GUI._popupSerial,
+			}
+			GUI._popupRegistry[popup] = record
+			GUI:ApplyZLayer(popup, record.layer, true)
+			popup.Visible = false
+			return record
+		end
+
+		function GUI:UpdatePopup(popup, config)
+			local record = GUI._popupRegistry[popup]
+			if not record then return false end
+			for key, value in pairs(type(config) == "table" and config or {}) do record[key] = value end
+			if popup.Visible then GUI:PositionPopup(popup, record.anchor, record.width, record.height, record.preferredDirection) end
+			return true
+		end
+
+		function GUI:CloseAllPopups(exceptPopup)
+			for popup in pairs(GUI._popupRegistry) do
+				if popup ~= exceptPopup and popup and popup.Parent then popup.Visible = false end
+			end
+			return true
+		end
+
+		function GUI:OpenPopup(popup, anchor, config)
+			local record = GUI._popupRegistry[popup] or GUI:RegisterPopup(popup, anchor, config)
+			if not record then return false end
+			if anchor then record.anchor = anchor end
+			for key, value in pairs(type(config) == "table" and config or {}) do record[key] = value end
+			GUI:CloseAllPopups(popup)
+			GUI._popupSerial = GUI._popupSerial + 1
+			GUI:ApplyZLayer(popup, GUI:GetZLayer(record.layer) + (GUI._popupSerial % 80), true)
+			popup.Visible = true
+			GUI:PositionPopup(popup, record.anchor, record.width, record.height, record.preferredDirection)
+			return true
+		end
+
+		function GUI:ClosePopup(popup)
+			if popup and popup.Parent then popup.Visible = false end
+			return true
+		end
+
+		function GUI:ClearInputHandlers()
+			for _, group in pairs(dispatcher) do table.clear(group) end
+			return true
+		end
+
+		GUI:TrackOwnedConnection("popup-manager", RunService.Heartbeat:Connect(function()
+			if _destroyed then return end
+			for popup, record in pairs(GUI._popupRegistry) do
+				if not popup or not popup.Parent then
+					GUI._popupRegistry[popup] = nil
+				elseif popup.Visible and record.anchor and record.anchor.Parent then
+					GUI:PositionPopup(popup, record.anchor, record.width, record.height, record.preferredDirection)
+				end
+			end
+		end))
+
+		function GUI:GetDeviceLayout()
+			local camera = workspace.CurrentCamera
+			local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+			local mode = (MOBILE or viewport.X < 720) and "mobile" or ((viewport.X < 1050) and "compact" or "desktop")
+			GUI._deviceLayout = mode
+			return {mode=mode, mobile=mode == "mobile", compact=mode ~= "desktop", viewport=viewport, touch=UIS.TouchEnabled == true}
+		end
+
+		function GUI:RefreshDeviceLayout()
+			local report = GUI:GetDeviceLayout()
+			if type(GUI.ForceScaleRefresh) == "function" then pcall(function() GUI:ForceScaleRefresh() end) end
+			if type(GUI.RefreshStatusBar) == "function" then pcall(function() GUI:RefreshStatusBar() end) end
+			return report
+		end
+
+		function GUI:SetReducedMotion(enabled)
+			GUI._reducedMotion = enabled == true
+			_runtimeRoot.reducedMotion = GUI._reducedMotion
+			if GUI._reducedMotion and type(GUI.SetThemeAnimation) == "function" then pcall(function() GUI:SetThemeAnimation(false) end) end
+			return GUI._reducedMotion
+		end
+		function GUI:GetReducedMotion() return GUI._reducedMotion == true end
+
+		local function validationWarning(kind, name, message, repaired)
+			local warning = {kind=tostring(kind), name=tostring(name or kind), message=tostring(message), repaired=repaired == true, at=os.clock()}
+			table.insert(GUI._validationWarnings, 1, warning)
+			while #GUI._validationWarnings > 100 do table.remove(GUI._validationWarnings) end
+			warn("[VenturaUI] " .. warning.kind .. " '" .. warning.name .. "': " .. warning.message)
+			return warning
+		end
+
+		function GUI:ValidateControlOptions(kind, supplied)
+			local opts = type(supplied) == "table" and supplied or {}
+			local name = opts.name or opts.title or opts.text or kind
+			local repair = options.validationAutoRepair ~= false
+			if type(opts.callback) ~= "nil" and type(opts.callback) ~= "function" then
+				validationWarning(kind, name, "callback was not a function" .. (repair and "; replaced with no-op" or ""), repair)
+				if repair then opts.callback = function() end end
+			end
+			if kind == "Slider" or kind == "Stepper" then
+				local minimum = tonumber(opts.min) or 0
+				local maximum = tonumber(opts.max) or 100
+				if maximum < minimum then
+					validationWarning(kind, name, "max was lower than min; values were swapped", repair)
+					if repair then minimum, maximum = maximum, minimum end
+				end
+				if repair then opts.min, opts.max = minimum, maximum end
+				if tonumber(opts.step) and tonumber(opts.step) <= 0 then
+					validationWarning(kind, name, "step must be greater than zero; using 1", repair)
+					if repair then opts.step = 1 end
+				end
+				if opts.default ~= nil and tonumber(opts.default) == nil then
+					validationWarning(kind, name, "default was not numeric; using min", repair)
+					if repair then opts.default = minimum end
+				elseif repair and opts.default ~= nil then opts.default = math.clamp(tonumber(opts.default), minimum, maximum) end
+			elseif kind == "Dropdown" or kind == "SearchDropdown" then
+				if type(opts.items) ~= "table" then
+					validationWarning(kind, name, "items was not a table; using an empty list", repair)
+					if repair then opts.items = {} end
+				elseif #opts.items == 0 then validationWarning(kind, name, "dropdown has no items", false) end
+				if kind == "SearchDropdown" and opts.maxVisible ~= nil and tonumber(opts.maxVisible) == nil then
+					validationWarning(kind, name, "maxVisible was invalid; using 6", repair)
+					if repair then opts.maxVisible = 6 end
+				end
+			elseif kind == "ColorPicker" and opts.default ~= nil and typeof(opts.default) ~= "Color3" then
+				validationWarning(kind, name, "default was not Color3; using white", repair)
+				if repair then opts.default = Color3.fromRGB(255,255,255) end
+			elseif (kind == "ProgressBar" or kind == "NumberDisplay") and opts.default ~= nil and tonumber(opts.default) == nil then
+				validationWarning(kind, name, "default was not numeric; using 0", repair)
+				if repair then opts.default = 0 end
+			end
+			return opts
+		end
+
+		function GUI:GetValidationWarnings()
+			local out = {}
+			for index, warning in ipairs(GUI._validationWarnings) do out[index] = table.clone(warning) end
+			return out
+		end
+		function GUI:ClearValidationWarnings() table.clear(GUI._validationWarnings); return true end
+
+		function GUI:BuildCleanupReport(reason)
+			local tasksRunning = 0
+			for _, taskInfo in pairs(GUI._tasks or {}) do if taskInfo and taskInfo.Running == true then tasksRunning = tasksRunning + 1 end end
+			local inputHandlers = 0
+			for _, group in pairs(dispatcher) do for _ in pairs(group) do inputHandlers = inputHandlers + 1 end end
+			local activePopups = 0
+			for popup in pairs(GUI._popupRegistry or {}) do if popup and popup.Parent and popup.Visible then activePopups = activePopups + 1 end end
+			local ownerConnections, ownerInstances = 0, 0
+			for _, owner in pairs(GUI:GetOwnerStats()) do ownerConnections = ownerConnections + (owner.connections or 0); ownerInstances = ownerInstances + (owner.instances or 0) end
+			local report = {
+				reason=tostring(reason or "manual"), destroyed=_destroyed == true,
+				connectionsRemaining=#(_connections or {}), tasksRemaining=tasksRunning,
+				ownerConnectionsRemaining=ownerConnections, ownerInstancesRemaining=ownerInstances,
+				inputHandlersRemaining=inputHandlers, popupsRemaining=activePopups,
+				notificationsRemaining=#(GUI._notificationStack or {}), queuedNotifications=#(GUI._notificationQueue or {}),
+				checkedAt=os.clock(),
+			}
+			report.ok = report.connectionsRemaining == 0 and report.tasksRemaining == 0 and report.ownerConnectionsRemaining == 0 and report.inputHandlersRemaining == 0 and report.popupsRemaining == 0
+			GUI._finalCleanupReport = report
+			return report
+		end
+		function GUI:GetFinalCleanupReport() return GUI._finalCleanupReport and table.clone(GUI._finalCleanupReport) or nil end
+
 
 		function GUI:GetBuildInfo()
 			return {
@@ -3334,6 +3605,7 @@ function Library:new(options)
 				if type(originalBuilder) == "function" then
 					Tab[methodName] = function(self, builderOptions, ...)
 						local extra = table.pack(...)
+						if options.controlValidation ~= false then builderOptions = GUI:ValidateControlOptions(methodName, builderOptions) end
 						local function build()
 							return originalBuilder(self, builderOptions, table.unpack(extra, 1, extra.n))
 						end
@@ -3496,6 +3768,13 @@ function Library:new(options)
 				callbacks=GUI:GetCallbackDiagnostics(),
 				controlBuildErrors=GUI:GetControlBuildErrors(),
 				cleanupReports=GUI:GetCleanupReports(),
+				finalCleanupReport=GUI:GetFinalCleanupReport(),
+				validationWarnings=GUI:GetValidationWarnings(),
+				deviceLayout=GUI:GetDeviceLayout(),
+				statusBarMode=GUI:GetStatusBarMode(),
+				statusBarResolvedMode=GUI:GetResolvedStatusBarMode(),
+				reducedMotion=GUI:GetReducedMotion(),
+				popupCount=(function() local n=0 for popup in pairs(GUI._popupRegistry or {}) do if popup and popup.Parent then n=n+1 end end return n end)(),
 				compatibility=GUI:GetCompatibilityReport(),
 				build=GUI:GetBuildInfo(),
 				cache=GUI:GetCacheDiagnostics(),
@@ -3971,64 +4250,104 @@ function Library:new(options)
 		return math.clamp(math.floor(_watermarkBaseTextSize() * scale + 0.5), 8, 32)
 	end
 
-	local function _applyWatermarkFontScale()
-		if not V.wmLbl then return end
-		local base = _watermarkBaseTextSize()
-		pcall(function() V.wmLbl:SetAttribute("VenturaBaseTextSize", base) end)
-		_applyFontScaleToObject(V.wmLbl)
+	local function _statusBarViewportMax()
+		local camera = workspace.CurrentCamera
+		local viewport = camera and camera.ViewportSize or Vector2.new(1280, 720)
+		local margin = math.max(6, tonumber(options.statusBarViewportMargin) or 14)
+		return math.max(120, viewport.X - margin * 2), viewport
 	end
 
-	local function _watermarkContentWidth(text)
-		return math.clamp(math.floor(textWidth(text or "", _watermarkScaledTextSize(), Enum.Font.RobotoMono) + 54 + 0.5), V.wmMinWidth, V.wmMaxWidth)
+	local function _resolvedStatusBarMode()
+		local mode = tostring(V.wmMode or "auto"):lower()
+		if mode ~= "compact" and mode ~= "expanded" then
+			local _, viewport = _statusBarViewportMax()
+			mode = viewport.X < (tonumber(options.statusBarCompactBreakpoint) or 620) and "compact" or "expanded"
+		end
+		return mode
+	end
+
+	local function _applyWatermarkFontScale()
+		local base = _watermarkBaseTextSize()
+		for _, label in ipairs({V.wmLeftLbl, V.wmCenterLbl, V.wmRightLbl, V.wmLbl}) do
+			if label then
+				pcall(function() label:SetAttribute("VenturaBaseTextSize", base) end)
+				_applyFontScaleToObject(label)
+			end
+		end
+	end
+
+	local function _watermarkContentWidth(left, center, right)
+		local mode = _resolvedStatusBarMode()
+		local size = _watermarkScaledTextSize()
+		local content = mode == "compact" and (tostring(left or "") .. tostring(right or "")) or (tostring(left or "") .. tostring(center or "") .. tostring(right or ""))
+		local padding = mode == "compact" and 48 or 78
+		local viewportMax = _statusBarViewportMax()
+		local minimum = math.min(V.wmMinWidth, viewportMax)
+		return math.clamp(math.floor(textWidth(content, size, Enum.Font.RobotoMono) + padding + 0.5), minimum, math.min(V.wmMaxWidth, viewportMax))
+	end
+
+	local function _layoutWatermarkSections()
+		if not V.wmFrame then return end
+		local mode = _resolvedStatusBarMode()
+		local verySmall = V.wmWidth < 290
+		local leftInset, rightInset = 16, 10
+		if V.wmLeftLbl then
+			V.wmLeftLbl.Position = UDim2.new(0, leftInset, 0, 0)
+			V.wmLeftLbl.Size = mode == "expanded" and UDim2.new(0.40, -leftInset, 1, 0) or UDim2.new(0.58, -leftInset, 1, 0)
+			V.wmLeftLbl.TextXAlignment = Enum.TextXAlignment.Left
+		end
+		if V.wmCenterLbl then
+			V.wmCenterLbl.Visible = mode == "expanded" and not verySmall
+			V.wmCenterLbl.Position = UDim2.new(0.40, 0, 0, 0)
+			V.wmCenterLbl.Size = UDim2.new(0.30, 0, 1, 0)
+			V.wmCenterLbl.TextXAlignment = Enum.TextXAlignment.Center
+		end
+		if V.wmRightLbl then
+			V.wmRightLbl.Visible = not verySmall
+			V.wmRightLbl.Position = mode == "expanded" and UDim2.new(0.70, 0, 0, 0) or UDim2.new(0.58, 0, 0, 0)
+			V.wmRightLbl.Size = mode == "expanded" and UDim2.new(0.30, -rightInset, 1, 0) or UDim2.new(0.42, -rightInset, 1, 0)
+			V.wmRightLbl.TextXAlignment = Enum.TextXAlignment.Right
+		end
 	end
 
 	local function _applyWatermarkSize(width, height, silent)
-		if width ~= nil then V.wmWidth = math.clamp(math.floor((tonumber(width) or V.wmWidth) + 0.5), V.wmMinWidth, V.wmMaxWidth) end
+		local viewportMax = _statusBarViewportMax()
+		local effectiveMax = math.min(V.wmMaxWidth, viewportMax)
+		local effectiveMin = math.min(V.wmMinWidth, effectiveMax)
+		if width ~= nil then V.wmWidth = math.clamp(math.floor((tonumber(width) or V.wmWidth) + 0.5), effectiveMin, effectiveMax) end
 		if height ~= nil then V.wmHeight = math.clamp(math.floor((tonumber(height) or V.wmHeight) + 0.5), V.wmMinHeight, V.wmMaxHeight) end
-		if V.wmFrame then
-			V.wmFrame.Size = UDim2.new(0, V.wmWidth, 0, V.wmHeight)
-		end
-		if V.wmLbl then
-			pcall(function() V.wmLbl.Name = "WatermarkText" end)
-			_applyWatermarkFontScale()
-			V.wmLbl.Size = UDim2.new(1, -24, 1, 0)
-			V.wmLbl.Position = UDim2.new(0, 16, 0, 0)
-			V.wmLbl.TextYAlignment = Enum.TextYAlignment.Center
-		end
-		if V.wmAccent then
-			V.wmAccent.Size = UDim2.new(0, 3, 1, -8)
-			V.wmAccent.Position = UDim2.new(0, 6, 0, 4)
-		end
-		if V.wmResizeHandle then
-			V.wmResizeHandle.Position = UDim2.new(0, 2, 1, -13)
-		end
+		if V.wmFrame then V.wmFrame.Size = UDim2.new(0, V.wmWidth, 0, V.wmHeight) end
+		_applyWatermarkFontScale()
+		_layoutWatermarkSections()
+		if V.wmAccent then V.wmAccent.Size = UDim2.new(0, 3, 1, -8); V.wmAccent.Position = UDim2.new(0, 6, 0, 4) end
+		if V.wmResizeHandle then V.wmResizeHandle.Position = UDim2.new(0, 2, 1, -13) end
 		if not silent and GUI.MarkConfigDirty then pcall(function() GUI:MarkConfigDirty() end) end
-		if GUI._cfgSyncCallbacks and GUI._cfgSyncCallbacks.watermarkSize then
-			pcall(GUI._cfgSyncCallbacks.watermarkSize, V.wmWidth, V.wmHeight, V.wmAutoSize)
-		end
+		if GUI._cfgSyncCallbacks and GUI._cfgSyncCallbacks.watermarkSize then pcall(GUI._cfgSyncCallbacks.watermarkSize, V.wmWidth, V.wmHeight, V.wmAutoSize) end
 		return V.wmWidth, V.wmHeight
 	end
 
 	local function _syncWatermarkStats()
-		if not V.wmFrame or not V.wmLbl then return end
-		local base = tostring(V.wmBaseText or options.watermark or options.name or "VenturaUI")
-		local parts = {}
-		if V.wmStatsVisible then
-			table.insert(parts, string.format("FPS %d", tonumber(V.miniStats.fps) or 0))
-			table.insert(parts, string.format("PING %dms", tonumber(V.miniStats.ping) or 0))
+		if not V.wmFrame or not V.wmLeftLbl then return end
+		local base = tostring(V.wmCustomSections.left or V.wmBaseText or options.watermark or options.name or "VenturaUI")
+		local stats = ""
+		if V.wmStatsVisible then stats = string.format("FPS %d  •  %dms", tonumber(V.miniStats.fps) or 0, tonumber(V.miniStats.ping) or 0) end
+		local runtime = ""
+		if V.wmRuntimeVisible then runtime = string.format("%s %s", tostring(V.wmRuntimeLabel or "RAN"), _formatRuntime(_getRuntimeSeconds())) end
+		local center = V.wmCustomSections.center ~= nil and tostring(V.wmCustomSections.center) or stats
+		local right = V.wmCustomSections.right ~= nil and tostring(V.wmCustomSections.right) or runtime
+		local mode = _resolvedStatusBarMode()
+		if mode == "compact" then
+			local compactParts = {}
+			if stats ~= "" then table.insert(compactParts, stats:gsub("FPS ", "")) end
+			if runtime ~= "" then table.insert(compactParts, runtime) end
+			right = table.concat(compactParts, "  •  ")
+			center = ""
 		end
-		if V.wmRuntimeVisible then
-			local label = tostring(V.wmRuntimeLabel or "RAN")
-			table.insert(parts, string.format("%s %s", label, _formatRuntime(_getRuntimeSeconds())))
-		end
-		local text = base
-		if #parts > 0 then
-			text = base .. "  •  " .. table.concat(parts, "  •  ")
-		end
-		V.wmLbl.Text = text
-		if V.wmAutoSize then
-			V.wmWidth = _watermarkContentWidth(text)
-		end
+		V.wmLeftLbl.Text = base
+		if V.wmCenterLbl then V.wmCenterLbl.Text = center end
+		if V.wmRightLbl then V.wmRightLbl.Text = right end
+		V.wmLbl = V.wmLeftLbl
+		if V.wmAutoSize then V.wmWidth = _watermarkContentWidth(base, center, right) end
 		_applyWatermarkSize(V.wmWidth, V.wmHeight, true)
 	end
 
@@ -4204,30 +4523,45 @@ function Library:new(options)
 		V.wmFrame.Size = UDim2.new(0, V.wmWidth, 0, V.wmHeight)
 		V.wmFrame.AnchorPoint = Vector2.new(1, 0)
 		V.wmFrame.Position = UDim2.new(1, V.WM_DEFAULT_X, 0, V.WM_DEFAULT_Y)
-		V.wmFrame.ZIndex = 50
+		V.wmFrame.ZIndex = GUI:GetZLayer("statusbar")
 		corner(V.wmFrame, 6); stroke(V.wmFrame, Library.Theme.BorderHover or Library.Theme.Border, 1)
 		V.wmAccent = Instance.new("Frame", V.wmFrame)
 		V.wmAccent.BackgroundColor3 = Library.Theme.Accent; regAccent(V.wmAccent)
 		V.wmAccent.BorderSizePixel = 0
 		V.wmAccent.Size = UDim2.new(0, 3, 1, -8)
 		V.wmAccent.Position = UDim2.new(0, 6, 0, 4)
-		V.wmAccent.ZIndex = 51; corner(V.wmAccent, 3)
-		V.wmLbl = Instance.new("TextLabel", V.wmFrame)
-		V.wmLbl.Name = "WatermarkText"
-		V.wmLbl.BackgroundTransparency = 1
-		V.wmLbl.Size = UDim2.new(1,-24,1,0); V.wmLbl.Position = UDim2.new(0,16,0,0)
-		V.wmLbl.TextSize = 13; V.wmLbl.ZIndex = 51
-		V.wmLbl.FontFace = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.SemiBold)
-		V.wmLbl.TextColor3 = Library.Theme.TextPrimary
-		pcall(function() V.wmLbl:SetAttribute("VenturaBaseTextSize", _watermarkBaseTextSize()) end)
+		V.wmAccent.ZIndex = GUI:GetZLayer("statusbar") + 1; corner(V.wmAccent, 3)
+		local function makeStatusLabel(name, alignment)
+			local label = Instance.new("TextLabel", V.wmFrame)
+			label.Name = name
+			label.BackgroundTransparency = 1
+			label.BorderSizePixel = 0
+			label.TextSize = 13
+			label.ZIndex = GUI:GetZLayer("statusbar") + 1
+			label.FontFace = Font.new("rbxasset://fonts/families/RobotoMono.json", Enum.FontWeight.SemiBold)
+			label.TextColor3 = Library.Theme.TextPrimary
+			label.TextXAlignment = alignment
+			label.TextYAlignment = Enum.TextYAlignment.Center
+			label.TextTruncate = Enum.TextTruncate.AtEnd
+			pcall(function() label:SetAttribute("VenturaTextRole", "TextPrimary") end)
+			return label
+		end
+		V.wmLeftLbl = makeStatusLabel("WatermarkLeft", Enum.TextXAlignment.Left)
+		V.wmCenterLbl = makeStatusLabel("WatermarkCenter", Enum.TextXAlignment.Center)
+		V.wmRightLbl = makeStatusLabel("WatermarkRight", Enum.TextXAlignment.Right)
+		V.wmLbl = V.wmLeftLbl
+		V.wmLeftLbl.Text = V.wmBaseText
 		_applyWatermarkFontScale()
-		V.wmLbl.Text = V.wmBaseText
-		V.wmLbl.TextXAlignment = Enum.TextXAlignment.Left
-		V.wmLbl.TextYAlignment = Enum.TextYAlignment.Center
+		_layoutWatermarkSections()
 
 		-- v5.66: no resize handle, but Settings exposes safe size controls again.
 
 		_syncWatermarkStats()
+		pcall(function()
+			track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+				_syncWatermarkStats()
+			end))
+		end)
 		local wmDrag, wmDragStart, wmDragPos = false, nil, nil
 		V.wmFrame.InputBegan:Connect(function(i)
 			if (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) and not V._wmResizing then
@@ -4330,8 +4664,9 @@ do
 	local cam = workspace.CurrentCamera or workspace:FindFirstChildWhichIsA("Camera")
 	vp = (cam and cam.ViewportSize) or Vector2.new(1280, 720)
 end
-local winW = MOBILE and math.min(vp.X-20,640) or math.min(820, vp.X - 40)
-local winH = math.min(580, vp.Y - 40)
+local _mobilePad = math.max(6, tonumber(options.mobileWindowPadding) or 12)
+local winW = GUI:GetDeviceLayout().mobile and math.min(vp.X-(_mobilePad*2),640) or math.min(820, vp.X - 40)
+local winH = math.min(580, vp.Y - (GUI:GetDeviceLayout().mobile and (_mobilePad*2) or 40))
 local _defaultWinW, _defaultWinH = winW, winH
 	local WIN_MIN_W = 340
 	local WIN_MIN_H = 220
@@ -5907,6 +6242,10 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	local NOTIF_RIGHT  = 14
 	local NOTIF_BOTTOM = 14
 	local _notifStack  = {}
+	local _notifQueue  = GUI._notificationQueue
+	local _notifMax = math.max(1, math.floor(tonumber(options.maxNotifications) or 4))
+	local _notifQueueEnabled = options.notificationQueue ~= false
+	local _notifQueueLimit = math.max(_notifMax, math.floor(tonumber(options.notificationQueueLimit) or 30))
 	GUI._notificationStack = _notifStack
 
 	local function _notifNormalizeArgs(title, text, duration, ntype)
@@ -5967,7 +6306,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	-- ══════════════════════════════════════════════════════════════════════
 	-- NOTIFICATION SYSTEM — Classic Ventura style restored
 	-- ══════════════════════════════════════════════════════════════════════
-	function GUI.notify(title, text, duration, ntype)
+	local _drainNotificationQueue
+	local function _spawnNotification(title, text, duration, ntype)
 		title, text, duration, ntype = _notifNormalizeArgs(title, text, duration, ntype)
 		local accentCol = _notifAccent(ntype)
 
@@ -5978,7 +6318,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		card.BorderSizePixel  = 0
 		card.Position         = UDim2.new(1, NOTIF_RIGHT + NOTIF_W + 40, 1, -(NOTIF_BOTTOM))
 		card.AnchorPoint      = Vector2.new(0, 1)
-		card.ZIndex           = 600
+		card.ZIndex           = GUI:GetZLayer("notification")
 		corner(card, 6)
 		stroke(card, Library.Theme.Border)
 
@@ -5986,7 +6326,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		accent.Size             = UDim2.new(0, 3, 1, 0)
 		accent.BackgroundColor3 = accentCol
 		accent.BorderSizePixel  = 0
-		accent.ZIndex           = 601
+		accent.ZIndex           = GUI:GetZLayer("notification") + 1
 		corner(accent, 2)
 
 		local progBg = Instance.new("Frame", card)
@@ -5994,24 +6334,24 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		progBg.Position         = UDim2.new(0, 0, 1, -2)
 		progBg.BackgroundColor3 = Library.Theme.Border
 		progBg.BorderSizePixel  = 0
-		progBg.ZIndex           = 601
+		progBg.ZIndex           = GUI:GetZLayer("notification") + 1
 
 		local progFill = Instance.new("Frame", progBg)
 		progFill.Size             = UDim2.new(1, 0, 1, 0)
 		progFill.BackgroundColor3 = accentCol
 		progFill.BorderSizePixel  = 0
-		progFill.ZIndex           = 602
+		progFill.ZIndex           = GUI:GetZLayer("notification") + 2
 
 		local tTitle = lbl(card, _notifIcon(ntype)..title, 12, Library.Theme.TextPrimary,
 			Font.new("rbxasset://fonts/families/Ubuntu.json", Enum.FontWeight.Bold))
 		tTitle.Size     = UDim2.new(1, -18, 0, 16)
 		tTitle.Position = UDim2.new(0, 12, 0, 8)
-		tTitle.ZIndex   = 601
+		tTitle.ZIndex   = GUI:GetZLayer("notification") + 1
 
 		local tText = lbl(card, text, 11, Library.Theme.TextSecondary)
 		tText.Size           = UDim2.new(1, -18, 0, 24)
 		tText.Position       = UDim2.new(0, 12, 0, 26)
-		tText.ZIndex         = 601
+		tText.ZIndex         = GUI:GetZLayer("notification") + 1
 		tText.TextWrapped    = true
 		tText.TextYAlignment = Enum.TextYAlignment.Top
 
@@ -6033,17 +6373,42 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				BackgroundTransparency = 1
 			}, TI_FAST, function()
 				pcall(function() card:Destroy() end)
+				if _drainNotificationQueue then task.defer(_drainNotificationQueue) end
 			end)
 		end
 
-		card.InputBegan:Connect(function(inp)
+		GUI:TrackOwnedConnection("notifications", card.InputBegan:Connect(function(inp)
 			if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
 				dismissCard()
 			end
-		end)
+		end))
 
 		task.delay(duration, dismissCard)
 		return { Dismiss = dismissCard, Close = dismissCard, Instance = card }
+	end
+
+	_drainNotificationQueue = function()
+		if not _notifQueueEnabled or _destroyed then return end
+		while #_notifStack < _notifMax and #_notifQueue > 0 do
+			local item = table.remove(_notifQueue, 1)
+			if item and not item.cancelled then item.handle = _spawnNotification(item.title, item.text, item.duration, item.ntype) end
+		end
+	end
+
+	function GUI.notify(title, text, duration, ntype)
+		local normalizedTitle, normalizedText, normalizedDuration, normalizedType = _notifNormalizeArgs(title, text, duration, ntype)
+		if #_notifStack >= _notifMax and _notifQueueEnabled then
+			while #_notifQueue >= _notifQueueLimit do table.remove(_notifQueue, 1) end
+			local item = {title=normalizedTitle, text=normalizedText, duration=normalizedDuration, ntype=normalizedType, cancelled=false}
+			table.insert(_notifQueue, item)
+			return {
+				Queued=true,
+				Cancel=function() item.cancelled=true end,
+				Dismiss=function() item.cancelled=true; if item.handle and item.handle.Dismiss then item.handle.Dismiss() end end,
+				Close=function() item.cancelled=true; if item.handle and item.handle.Close then item.handle.Close() end end,
+			}
+		end
+		return _spawnNotification(normalizedTitle, normalizedText, normalizedDuration, normalizedType)
 	end
 
 	function GUI:Notify(title, text, duration, ntype)
@@ -6071,6 +6436,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		return GUI.notify(title, text, duration or 3, "info")
 	end
 	function GUI:ClearNotifications()
+		table.clear(_notifQueue)
 		for i = #_notifStack, 1, -1 do
 			local card = _notifStack[i]
 			if card and card.Parent then pcall(function() card:Destroy() end) end
@@ -6085,9 +6451,15 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	function GUI:GetNotificationPosition()
 		return "bottom-right"
 	end
-	function GUI:SetNotificationMax(_maxCount)
-		return false
+	function GUI:SetNotificationMax(maxCount)
+		_notifMax = math.max(1, math.floor(tonumber(maxCount) or _notifMax))
+		_drainNotificationQueue()
+		return _notifMax
 	end
+	function GUI:GetNotificationMax() return _notifMax end
+	function GUI:SetNotificationQueue(state) _notifQueueEnabled = state ~= false; if _notifQueueEnabled then _drainNotificationQueue() end; return _notifQueueEnabled end
+	function GUI:GetNotificationQueueEnabled() return _notifQueueEnabled end
+	function GUI:GetNotificationQueue() return _notifQueue end
 	function GUI:GetNotifications()
 		return _notifStack
 	end
@@ -6599,6 +6971,9 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		GUI._closing = true
 		GUI._open = false
 		_stopAllActivity()
+		pcall(function() GUI:CloseAllPopups() end)
+		pcall(function() GUI:ClearNotifications() end)
+		pcall(function() GUI:ClearInputHandlers() end)
 		_runtimeUntrackShutdown(GUI._runtimeShutdown)
 		_destroyed=true; keybindListening=false
 		for _, fn in ipairs(GUI._destroyCallbacks or {}) do
@@ -6606,6 +6981,15 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		end
 		for _,c in ipairs(_connections) do pcall(function() c:Disconnect() end) end
 		_connections={}
+		for ownerName in pairs(GUI._ownerBuckets or {}) do pcall(function() GUI:ReleaseOwner(ownerName, "window-destroy") end) end
+		if options.cleanupReportOnDestroy ~= false then
+			task.delay(0.12, function()
+				local report = GUI:BuildCleanupReport("destroy")
+				if options.printCleanupReport == true then
+					print(string.format("[VenturaUI] Cleanup: connections=%d tasks=%d instances=%d input=%d popups=%d", report.connectionsRemaining, report.tasksRemaining, report.ownerInstancesRemaining, report.inputHandlersRemaining, report.popupsRemaining))
+				end
+			end)
+		end
 		if _mainTween then _mainTween:Cancel(); _mainTween = nil end
 		if V.minimizeBubble then pcall(function() V.minimizeBubble:Destroy() end); V.minimizeBubble=nil end
 		if _ttFrame then pcall(function() _ttFrame.Visible=false end) end
@@ -6799,6 +7183,31 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		if V.wmFrame then V.wmFrame.AnchorPoint = Vector2.new(1, 0); V.wmFrame.Position = UDim2.new(1, V.WM_DEFAULT_X, 0, V.WM_DEFAULT_Y) end
 		pcall(function() GUI:MarkConfigDirty() end)
 	end
+	function GUI:SetStatusBarMode(mode, silent)
+		mode = tostring(mode or "auto"):lower()
+		if mode ~= "auto" and mode ~= "compact" and mode ~= "expanded" then mode = "auto" end
+		V.wmMode = mode
+		_syncWatermarkStats()
+		if not silent then pcall(function() GUI:MarkConfigDirty() end) end
+		return mode
+	end
+	function GUI:GetStatusBarMode() return tostring(V.wmMode or "auto") end
+	function GUI:GetResolvedStatusBarMode() return _resolvedStatusBarMode() end
+	function GUI:SetStatusBarSections(left, center, right, silent)
+		if type(left) == "table" then
+			local sections = left
+			left, center, right = sections.left, sections.center, sections.right
+		end
+		V.wmCustomSections = {left=left, center=center, right=right}
+		_syncWatermarkStats()
+		if not silent then pcall(function() GUI:MarkConfigDirty() end) end
+		return GUI:GetStatusBarSections()
+	end
+	function GUI:GetStatusBarSections()
+		return {left=V.wmLeftLbl and V.wmLeftLbl.Text or "", center=V.wmCenterLbl and V.wmCenterLbl.Text or "", right=V.wmRightLbl and V.wmRightLbl.Text or ""}
+	end
+	function GUI:RefreshStatusBar() _syncWatermarkStats(); return GUI:GetStatusBarSections() end
+
 	-- Friendly aliases for scripts that call this the top-right/status bar instead of watermark.
 	function GUI:SetTopRightBarSize(width, height, silent) return GUI:SetWatermarkSize(width, height, silent) end
 	function GUI:GetTopRightBarSize() return GUI:GetWatermarkSize() end
@@ -7410,6 +7819,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		end
 
 		function Tab:SetSearchQuery(query)
+			pcall(function() GUI:CloseAllPopups() end)
 			Tab._searchQuery = tostring(query or "")
 			if searchBox and searchBox.Text ~= Tab._searchQuery then searchBox.Text = Tab._searchQuery end
 			Tab:_ApplyControlSearch()
@@ -7439,7 +7849,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		Tab._navBtn:SetAttribute("VenturaTabButton", true)
 		Tab._navBtn.BackgroundColor3=isFirst and Library.Theme.Accent:Lerp(Library.Theme.Nav, 0.72) or Library.Theme.Nav
 		Tab._navBtn.BackgroundTransparency=isFirst and 0.18 or 1
-		Tab._navBtn.Size=UDim2.new(1,0,0,34)
+		Tab._navBtn.Size=UDim2.new(1,0,0,GUI:GetDeviceLayout().mobile and 42 or 34)
 		Tab._navBtn.LayoutOrder=_nextNavOrder()
 		corner(Tab._navBtn,4)
 
@@ -7579,6 +7989,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		end
 		function Tab:Deactivate()
 			if not Tab.Active then return end
+			pcall(function() GUI:CloseAllPopups() end)
 			Tab.Active=false; Tab._scroll.Position=UDim2.new(0,99999,0,0)
 			Tab:_ApplyNavStyle(false)
 		end
@@ -7598,6 +8009,10 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		end
 
 		local function base(name,h)
+			local touchKinds = {Button=true,Toggle=true,Slider=true,Dropdown=true,SearchDropdown=true,TextInput=true,ColorPicker=true,Keybind=true,Stepper=true,Segmented=true,NumberDisplay=true,StatusCard=true}
+			if options.mobileTouchTargets ~= false and GUI:GetDeviceLayout().mobile and touchKinds[tostring(name)] then
+				h = math.max(tonumber(h) or 0, tonumber(options.mobileTouchTargetHeight) or 48)
+			end
 			local f=Instance.new("Frame",Tab._scroll)
 			f.Name=name
 			f.BorderSizePixel=0
@@ -7691,6 +8106,9 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			control._ownerKey = ownerKey
 			GUI:CreateOwner(ownerKey)
 			if frame then GUI:TrackOwnedInstance(ownerKey, frame) end
+			for _, externalInstance in ipairs(control._externalInstances or {}) do
+				if externalInstance then GUI:TrackOwnedInstance(ownerKey, externalInstance) end
+			end
 			function control:GetOwner() return self._ownerKey end
 			function control:Own(item)
 				if typeof(item) == "RBXScriptConnection" then GUI:TrackOwnedConnection(self._ownerKey, item)
@@ -8771,7 +9189,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			if opts.multi and type(opts.default)=="table" then for _,v in ipairs(opts.default) do DD.Multi[v]=true end end
 			local hasDesc=tostring(opts.description or "") ~= ""
 			local closedH=hasDesc and 64 or 54
-			DD.frame=base("Dropdown",closedH); DD.frame.ClipsDescendants=true; pad(DD.frame,0,0,0,0)
+			DD.frame=base("Dropdown",closedH); DD.frame.ClipsDescendants=false; pad(DD.frame,0,0,0,0)
 			local st=DD.frame:FindFirstChildOfClass("UIStroke")
 			local header=Instance.new("TextButton",DD.frame)
 			header.Name="DDHeader"; header.AutoButtonColor=false; header.BackgroundTransparency=1; header.BorderSizePixel=0
@@ -8796,21 +9214,24 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			arrowImg.Image="rbxassetid://12974428978"; arrowImg.ImageColor3=Library.Theme.TextSecondary
 			arrowImg.Size=UDim2.new(0,13,0,13); arrowImg.Position=UDim2.new(1,-16,0,closedH/2); arrowImg.ZIndex=3
 			addTooltip(header,opts.tooltip)
-			local optPanel=Instance.new("Frame",DD.frame)
+			local optPanel=Instance.new("Frame",SG)
+			DD._externalInstances={optPanel}
 			optPanel.Name="DropdownList"
 			optPanel.BackgroundColor3=Library.Theme.Background
 			optPanel.BorderSizePixel=0
-			optPanel.Position=UDim2.new(0,12,0,closedH+8)
-			optPanel.Size=UDim2.new(1,-24,0,0)
+			optPanel.Position=UDim2.new(0,0,0,0)
+			optPanel.Size=UDim2.new(0,220,0,0)
 			optPanel.Visible=false; optPanel.ZIndex=4
 			corner(optPanel,9); stroke(optPanel,Library.Theme.BorderHover,1.25)
+			GUI:RegisterPopup(optPanel, DD.frame, {layer="dropdown", preferredDirection=options.popupPreferredDirection})
 			local optHolder=Instance.new("Frame",optPanel)
 			optHolder.BackgroundTransparency=1; optHolder.BorderSizePixel=0
 			optHolder.Size=UDim2.new(1,-14,0,0); optHolder.Position=UDim2.new(0,7,0,7)
 			optHolder.Visible=true; optHolder.ZIndex=5
 			local ol=Instance.new("UIListLayout",optHolder); ol.Padding=UDim.new(0,5); ol.SortOrder=Enum.SortOrder.LayoutOrder
 			local function setOpen(v)
-				DD.Open=v==true; optPanel.Visible=DD.Open
+				DD.Open=v==true
+				if DD.Open then GUI:OpenPopup(optPanel, DD.frame, {layer="dropdown", height=optPanel.AbsoluteSize.Y > 0 and optPanel.AbsoluteSize.Y or 120}) else GUI:ClosePopup(optPanel) end
 				tw(arrowImg,{Rotation=DD.Open and 180 or 0})
 				tw(st,{Color=DD.Open and Library.Theme.BorderHover or Library.Theme.Border})
 				tw(valueStroke,{Color=DD.Open and Library.Theme.Accent or Library.Theme.BorderHover})
@@ -8845,7 +9266,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 						if opts.multi then
 							DD.Multi[item]=not DD.Multi[item]; local s=selectedList(); selLbl.Text=labelText(); GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback,s); refresh()
 						else
-							DD.Selected=item; selLbl.Text=labelText(); GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback,item); setOpen(false); DD.frame.Size=UDim2.new(1,0,0,closedH); refresh()
+							DD.Selected=item; selLbl.Text=labelText(); GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback,item); setOpen(false); refresh()
 						end
 						pcall(function() GUI:MarkConfigDirty() end)
 					end)
@@ -8853,8 +9274,12 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				end
 				total=math.max(total-5,0)
 				optHolder.Size=UDim2.new(1,-14,0,total)
-				optPanel.Size=UDim2.new(1,-24,0,total+14)
-				DD.frame.Size=UDim2.new(1,0,0,DD.Open and (closedH+24+total) or closedH)
+				local panelWidth = math.max(180, DD.frame.AbsoluteSize.X - 24)
+				local panelHeight = math.max(28, total + 14)
+				optPanel.Size=UDim2.new(0,panelWidth,0,panelHeight)
+				GUI:UpdatePopup(optPanel, {width=panelWidth, height=panelHeight})
+				DD.frame.Size=UDim2.new(1,0,0,closedH)
+				if DD.Open then GUI:PositionPopup(optPanel, DD.frame, panelWidth, panelHeight, options.popupPreferredDirection) end
 			end
 			header.MouseButton1Click:Connect(function() if DD.Disabled then return end; setOpen(not DD.Open); refresh() end)
 			DD.frame.MouseEnter:Connect(function() tw(DD.frame,{BackgroundColor3=Library.Theme.SurfaceHover}) end)
@@ -8878,6 +9303,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				else local valid=false; for _,item in ipairs(opts.items) do if item==DD.Selected then valid=true break end end; if not valid then DD.Selected=nil end end
 				selLbl.Text=labelText(); refresh()
 			end
+			function DD:_stopForDestroy() DD.Open=false; GUI:ClosePopup(optPanel) end
 			_registerConfigControl(DD, opts, opts.multi and "multidropdown" or "dropdown")
 			_registerReconnectControl(DD, opts, opts.multi and "multidropdown" or "dropdown")
 			return _universalControl(DD, opts)
@@ -8892,7 +9318,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			local searchH=34
 			local rowH=34
 			local maxVisible=math.clamp(tonumber(opts.maxVisible) or 6, 2, 12)
-			DD.frame=base("SearchDropdown",closedH); DD.frame.ClipsDescendants=true; pad(DD.frame,0,0,0,0)
+			DD.frame=base("SearchDropdown",closedH); DD.frame.ClipsDescendants=false; pad(DD.frame,0,0,0,0)
 			local st=DD.frame:FindFirstChildOfClass("UIStroke")
 			local header=Instance.new("TextButton",DD.frame)
 			header.Name="DDHeader"; header.AutoButtonColor=false; header.BackgroundTransparency=1; header.BorderSizePixel=0
@@ -8914,10 +9340,12 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			arrowImg.Image="rbxassetid://12974428978"; arrowImg.ImageColor3=Library.Theme.TextSecondary
 			arrowImg.Size=UDim2.new(0,13,0,13); arrowImg.Position=UDim2.new(1,-16,0,closedH/2); arrowImg.ZIndex=3
 			addTooltip(header,opts.tooltip)
-			local optPanel=Instance.new("Frame",DD.frame)
+			local optPanel=Instance.new("Frame",SG)
+			DD._externalInstances={optPanel}
 			optPanel.Name="DropdownList"; optPanel.BackgroundColor3=Library.Theme.Background; optPanel.BorderSizePixel=0
-			optPanel.Position=UDim2.new(0,12,0,closedH+8); optPanel.Size=UDim2.new(1,-24,0,0); optPanel.Visible=false; optPanel.ZIndex=4
+			optPanel.Position=UDim2.new(0,0,0,0); optPanel.Size=UDim2.new(0,240,0,0); optPanel.Visible=false; optPanel.ZIndex=4
 			corner(optPanel,9); stroke(optPanel,Library.Theme.BorderHover,1.25)
+			GUI:RegisterPopup(optPanel, DD.frame, {layer="dropdown", preferredDirection=options.popupPreferredDirection})
 			local searchBg=Instance.new("Frame",optPanel)
 			searchBg.Name="DropdownSearchBox"; searchBg.BackgroundColor3=Library.Theme.Surface; searchBg.BorderSizePixel=0
 			searchBg.Size=UDim2.new(1,-14,0,searchH); searchBg.Position=UDim2.new(0,7,0,7); searchBg.ZIndex=5; corner(searchBg,8); stroke(searchBg,Library.Theme.Border,1)
@@ -8945,7 +9373,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				return out
 			end
 			local function setOpen(v)
-				DD.Open=v==true; optPanel.Visible=DD.Open
+				DD.Open=v==true
+				if DD.Open then GUI:OpenPopup(optPanel, DD.frame, {layer="dropdown", height=optPanel.AbsoluteSize.Y > 0 and optPanel.AbsoluteSize.Y or 180}) else GUI:ClosePopup(optPanel) end
 				tw(arrowImg,{Rotation=DD.Open and 180 or 0}); tw(st,{Color=DD.Open and Library.Theme.BorderHover or Library.Theme.Border}); tw(valueStroke,{Color=DD.Open and Library.Theme.Accent or Library.Theme.BorderHover})
 				if DD.Open then
 					if opts.clearSearchOnOpen == true and searchBox.Text ~= "" then
@@ -8981,7 +9410,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 						opt.MouseLeave:Connect(function() local nowSel=(opts.multi and DD.Multi[item]) or (not opts.multi and DD.Selected==item); if not nowSel then tw(opt,{BackgroundColor3=Library.Theme.Surface,TextColor3=Library.Theme.TextSecondary}); safeTween(optStroke,{Color=Library.Theme.Border}) end end)
 						opt.MouseButton1Click:Connect(function()
 							if opts.multi then DD.Multi[item]=not DD.Multi[item]; local s=selectedList(); selLbl.Text=labelText(); GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback,s); refresh()
-							else DD.Selected=item; selLbl.Text=labelText(); GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback,item); setOpen(false); DD.frame.Size=UDim2.new(1,0,0,closedH); refresh() end
+							else DD.Selected=item; selLbl.Text=labelText(); GUI:_invokeCallback(tostring(opts.name or opts.title or "control"), opts.callback,item); setOpen(false); refresh() end
 							pcall(function() GUI:MarkConfigDirty() end)
 						end)
 						total=total+rowH+5
@@ -8992,8 +9421,11 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				local resultsH=(visibleRows*rowH)+((visibleRows-1)*5)
 				scroll.Size=UDim2.new(1,-14,0,resultsH); scroll.CanvasSize=UDim2.new(0,0,0,total)
 				local panelH=searchH+21+resultsH
-				optPanel.Size=UDim2.new(1,-24,0,panelH)
-				DD.frame.Size=UDim2.new(1,0,0,DD.Open and (closedH+16+panelH) or closedH)
+				local panelWidth=math.max(200, DD.frame.AbsoluteSize.X-24)
+				optPanel.Size=UDim2.new(0,panelWidth,0,panelH)
+				GUI:UpdatePopup(optPanel, {width=panelWidth, height=panelH})
+				DD.frame.Size=UDim2.new(1,0,0,closedH)
+				if DD.Open then GUI:PositionPopup(optPanel, DD.frame, panelWidth, panelH, options.popupPreferredDirection) end
 			end
 			searchBox:GetPropertyChangedSignal("Text"):Connect(function() DD._query=searchBox.Text; refresh() end)
 			searchBox.Focused:Connect(function()
@@ -9023,6 +9455,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			function DD:SetItems(newItems) opts.items=type(newItems)=="table" and newItems or {}; if opts.multi then local keep={}; for _,item in ipairs(opts.items) do if DD.Multi[item] then keep[item]=true end end; DD.Multi=keep else local valid=false; for _,item in ipairs(opts.items) do if item==DD.Selected then valid=true break end end; if not valid then DD.Selected=nil end end; selLbl.Text=labelText(); refresh() end
 			function DD:SetSearch(text) searchBox.Text=tostring(text or "") end
 			function DD:ClearSearch() searchBox.Text="" end
+			function DD:_stopForDestroy() DD.Open=false; GUI:ClosePopup(optPanel) end
 			_registerConfigControl(DD, opts, opts.multi and "searchmultidropdown" or "searchdropdown")
 			_registerReconnectControl(DD, opts, opts.multi and "searchmultidropdown" or "searchdropdown")
 			return _universalControl(DD, opts)
@@ -9092,7 +9525,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			opts=validate({name="Color",tooltip="",default=Color3.fromRGB(255,100,100),callback=function()end},opts)
 			local defaultColor = typeof(opts.default)=="Color3" and opts.default or Color3.fromRGB(255,100,100)
 			local CP={Value=defaultColor,Open=false,_conns={}}
-			CP.frame=base("ColorPicker",42); CP.frame.ClipsDescendants=true; pad(CP.frame,0,10,0,12)
+			CP.frame=base("ColorPicker",42); CP.frame.ClipsDescendants=false; pad(CP.frame,0,10,0,12)
 			local header=Instance.new("TextButton",CP.frame)
 			header.BackgroundTransparency=1; header.BorderSizePixel=0
 			header.Size=UDim2.new(1,0,0,42); header.Position=UDim2.new(0,0,0,0)
@@ -9105,10 +9538,12 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			local hexLbl=lbl(CP.frame,"#FFFFFF",10,Library.Theme.TextSecondary,Font.new("rbxasset://fonts/families/RobotoMono.json"),Enum.TextXAlignment.Right)
 			hexLbl.AnchorPoint=Vector2.new(1,0.5); hexLbl.Size=UDim2.new(0,78,0,16); hexLbl.Position=UDim2.new(1,-52,0,21); hexLbl.ZIndex=4
 			addTooltip(CP.frame,opts.tooltip)
-			local picker=Instance.new("Frame",CP.frame)
+			local picker=Instance.new("Frame",SG)
+			CP._externalInstances={picker}
 			picker.BackgroundColor3=Library.Theme.Background; picker.BorderSizePixel=0
-			picker.Size=UDim2.new(1,0,0,114); picker.Position=UDim2.new(0,0,0,46)
+			picker.Size=UDim2.new(0,260,0,114); picker.Position=UDim2.new(0,0,0,0)
 			picker.Visible=false; corner(picker,7); pad(picker,8,10,8,10); stroke(picker,Library.Theme.Border)
+			GUI:RegisterPopup(picker, CP.frame, {layer="colorpicker", preferredDirection=options.popupPreferredDirection, height=114})
 			local pL=Instance.new("UIListLayout",picker)
 			pL.Padding=UDim.new(0,6); pL.SortOrder=Enum.SortOrder.LayoutOrder
 			local h_v,s_v,v_v=Color3.toHSV(defaultColor)
@@ -9162,8 +9597,10 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			end)
 			header.MouseButton1Click:Connect(function()
 				if CP.Disabled then return end
-				CP.Open=not CP.Open; picker.Visible=CP.Open
-				CP.frame.Size=UDim2.new(1,0,0,CP.Open and 166 or 42)
+				CP.Open=not CP.Open
+				local pickerWidth=math.max(230, CP.frame.AbsoluteSize.X)
+				if CP.Open then GUI:OpenPopup(picker, CP.frame, {layer="colorpicker", width=pickerWidth, height=114}) else GUI:ClosePopup(picker) end
+				CP.frame.Size=UDim2.new(1,0,0,42)
 			end)
 			function CP:Set(c, silent)
 				if typeof(c) ~= "Color3" then return CP end
@@ -9177,6 +9614,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			end
 			function CP:Get() return CP.Value end
 			rebuild(true)
+			function CP:_stopForDestroy() CP.Open=false; GUI:ClosePopup(picker) end
 			_registerConfigControl(CP, opts, "color")
 			_registerReconnectControl(CP, opts, "color")
 			return _universalControl(CP, opts)
@@ -10691,6 +11129,43 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end -- GUI:CreateTab
 
 
+	function GUI:EnableSearch(config)
+		config = type(config) == "table" and config or {}
+		options.globalSearch = config.enabled ~= false
+		if config.placeholder ~= nil then options.globalSearchPlaceholder = tostring(config.placeholder) end
+		for _, tab in ipairs(GUI._tabs or {}) do
+			if type(tab.SetControlSearchVisible) == "function" then tab:SetControlSearchVisible(options.globalSearch ~= false) end
+			if tab._searchBox and options.globalSearchPlaceholder then tab._searchBox.PlaceholderText = tostring(options.globalSearchPlaceholder) end
+		end
+		return options.globalSearch ~= false
+	end
+
+	function GUI:SearchControls(query, searchOptions)
+		query = tostring(query or "")
+		searchOptions = type(searchOptions) == "table" and searchOptions or {}
+		GUI._globalSearchQuery = query
+		local results, firstTab = {}, nil
+		for _, tab in ipairs(GUI._tabs or {}) do
+			if type(tab.SetSearchQuery) == "function" then tab:SetSearchQuery(query) end
+			for _, control in ipairs(tab._usabilityControls or {}) do
+				local frame = control and control.frame
+				if frame and frame.Parent and frame.Visible then
+					firstTab = firstTab or tab
+					table.insert(results, {tab=tab._name, name=type(control.GetName) == "function" and control:GetName() or frame.Name, id=control._controlId, control=control})
+				end
+			end
+		end
+		if searchOptions.activateFirst == true and firstTab and type(firstTab.Activate) == "function" then firstTab:Activate() end
+		return results
+	end
+
+	function GUI:ClearControlSearch()
+		GUI._globalSearchQuery = ""
+		for _, tab in ipairs(GUI._tabs or {}) do if type(tab.ClearSearch) == "function" then tab:ClearSearch() end end
+		return true
+	end
+	function GUI:GetControlSearchQuery() return tostring(GUI._globalSearchQuery or "") end
+
 	function GUI:CreateLazyTab(tabOptions, builder)
 		tabOptions = type(tabOptions) == "table" and table.clone(tabOptions) or {name=tostring(tabOptions or "Tab")}
 		tabOptions.lazy = true
@@ -10698,6 +11173,23 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		if type(builder) == "function" then tab:BuildLazy(builder) end
 		return tab
 	end
+
+	function GUI:GetProfileManager()
+		local manager = {}
+		function manager:List() return GUI:GetConfigProfiles() end
+		function manager:Current() return GUI:GetConfigProfile() end
+		function manager:Save(name) return GUI:SaveProfile(name) end
+		function manager:Load(name) return GUI:LoadProfile(name) end
+		function manager:Create(name, fromCurrent) return GUI:CreateProfile(name, fromCurrent) end
+		function manager:Duplicate(fromName, toName) return GUI:DuplicateProfile(fromName, toName) end
+		function manager:Rename(oldName, newName) return GUI:RenameProfile(oldName, newName) end
+		function manager:Delete(name) return GUI:DeleteProfile(name) end
+		function manager:SetAutoLoad(name) return GUI:SetAutoLoadProfile(name) end
+		function manager:GetAutoLoad() return GUI:GetAutoLoadProfile() end
+		return manager
+	end
+	function GUI:ListProfiles() return GUI:GetConfigProfiles() end
+	function GUI:SwitchProfile(name) return GUI:LoadProfile(name) end
 
 	function GUI:GetNormalizedPosition()
 		local camera = workspace.CurrentCamera
@@ -11156,7 +11648,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			TooltipText = "TextPrimary", VersionLabel = "TextSecondary", SectionTitle = "TextPrimary", SectionSubtitle = "TextSecondary",
 			NavText = "TextSecondary", NavIcon = "TextSecondary", TabText = "TextSecondary", TabIcon = "TextSecondary",
 			DropdownValue = "TextPrimary", SearchValue = "TextPrimary", DropdownSearchBox = "TextPrimary", InputBox = "TextPrimary",
-			MiniFPS = "TextPrimary", MiniPing = "TextPrimary", WatermarkText = "TextPrimary", LabelText = "TextPrimary",
+			MiniFPS = "TextPrimary", MiniPing = "TextPrimary", WatermarkText = "TextPrimary", WatermarkLeft = "TextPrimary", WatermarkCenter = "TextPrimary", WatermarkRight = "TextPrimary", LabelText = "TextPrimary",
 			StepperMinus = "TextSecondary", StepperPlus = "Accent", StepperValue = "TextPrimary", SegmentOption = "TextPrimary", SegmentText = "TextPrimary",
 			MiniStatIcon = "Accent", KeyValueIcon = "Accent", KeyValueLabel = "TextSecondary", KeyValueValue = "TextPrimary",
 			AlertTitle = "TextPrimary", AlertText = "TextSecondary", AlertIcon = "Accent", NoticeTitle = "TextPrimary", NoticeText = "TextSecondary",
@@ -11958,6 +12450,13 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			watermarkWidth = V.wmWidth,
 			watermarkHeight = V.wmHeight,
 			watermarkAutoSize = V.wmAutoSize == true,
+			statusBarMode = V.wmMode or "auto",
+			statusBarLeft = V.wmCustomSections and V.wmCustomSections.left or "",
+			statusBarCenter = V.wmCustomSections and V.wmCustomSections.center or "",
+			statusBarRight = V.wmCustomSections and V.wmCustomSections.right or "",
+			reducedMotion = GUI:GetReducedMotion(),
+			notificationMax = GUI:GetNotificationMax(),
+			notificationQueue = GUI:GetNotificationQueueEnabled(),
 			minimizeBubbleX = V.minimizeBubble and V.minimizeBubble.Position.X.Offset or 18,
 			minimizeBubbleY = V.minimizeBubble and V.minimizeBubble.Position.Y.Offset or 78,
 			responsiveScale = _responsiveScaleEnabled == true,
@@ -12500,6 +12999,13 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			warn("[VenturaUI] ApplyConfig failed: " .. tostring(err))
 			return false, err
 		end
+		if data.statusBarMode ~= nil then GUI:SetStatusBarMode(data.statusBarMode, true) end
+		if data.statusBarLeft ~= nil or data.statusBarCenter ~= nil or data.statusBarRight ~= nil then
+			GUI:SetStatusBarSections(data.statusBarLeft ~= "" and data.statusBarLeft or nil, data.statusBarCenter ~= "" and data.statusBarCenter or nil, data.statusBarRight ~= "" and data.statusBarRight or nil, true)
+		end
+		if data.reducedMotion ~= nil then GUI:SetReducedMotion(data.reducedMotion == true) end
+		if data.notificationMax ~= nil then GUI:SetNotificationMax(data.notificationMax) end
+		if data.notificationQueue ~= nil then GUI:SetNotificationQueue(data.notificationQueue ~= false) end
 		GUI._configDirty = false
 		return true
 	end
@@ -12795,6 +13301,13 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			watermarkWidth = math.clamp(tonumber(options.watermarkWidth or options.topRightBarWidth or options.statusBarWidth) or textWidth(tostring(options.watermark or options.name or "VenturaUI"), 13, Enum.Font.RobotoMono) + 54, V.wmMinWidth, V.wmMaxWidth),
 			watermarkHeight = math.clamp(tonumber(options.watermarkHeight or options.topRightBarHeight or options.statusBarHeight) or 30, V.wmMinHeight, V.wmMaxHeight),
 			watermarkAutoSize = options.watermarkAutoSize ~= false,
+			statusBarMode = options.statusBarMode or "auto",
+			statusBarLeft = options.statusBarLeft or "",
+			statusBarCenter = options.statusBarCenter or "",
+			statusBarRight = options.statusBarRight or "",
+			reducedMotion = options.reducedMotion == true,
+			notificationMax = math.max(1, math.floor(tonumber(options.maxNotifications) or 4)),
+			notificationQueue = options.notificationQueue ~= false,
 			watermarkX = V.WM_DEFAULT_X,
 			watermarkY = V.WM_DEFAULT_Y,
 			watermarkScaleX = 1,
