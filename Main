@@ -20,9 +20,9 @@ local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 local Library = {}
 Library.Version = "5.99-compatibility-guard"
 Library.Product = "MenuXD"
-Library.BuildId = "5.99.20260717.1dffef4477"
-Library.BuildTimestamp = "2026-07-17T00:00:00Z"
-Library.SourceHash = "1dffef44771f1de716fff875ed4ef73c697cf2a6bfe82cd03c3e7d182da40c1f"
+Library.BuildId = "5.99.1.20260718.68b99b4e88"
+Library.BuildTimestamp = "2026-07-18T00:00:00Z"
+Library.SourceHash = "68b99b4e88b4d49f9ccd33224a8eb23b911556eae3686fcf5dcc120dbe03e648"
 Library.SourceHashMode = "normalized-sha256"
 Library.ReleaseChannel = "stable"
 
@@ -2243,8 +2243,8 @@ function Library:new(options)
 		watermarkAutoSize  = nil,  -- nil = auto unless a manual width is provided; true/false forces behavior
 		watermarkWidth     = nil,  -- manual top-right bar width; aliases: topRightBarWidth/statusBarWidth
 		watermarkHeight    = 30,   -- manual top-right bar height; aliases: topRightBarHeight/statusBarHeight
-		watermarkMinWidth  = 130,
-		watermarkMaxWidth  = 720,
+		watermarkMinWidth  = 220, -- wider default status bar
+		watermarkMaxWidth  = 1200, -- expanded manual width range
 		watermarkMinHeight = 24,
 		watermarkMaxHeight = 64,
 		topRightBarWidth   = nil,
@@ -2620,8 +2620,8 @@ function Library:new(options)
 	V.runStartedAt = os.clock()
 	-- 5.18: stats bar defaults to top-right so it stays clear of Roblox top-left UI.
 	V.WM_DEFAULT_X, V.WM_DEFAULT_Y = -14, 14
-	V.wmMinWidth = math.max(80, tonumber(options.watermarkMinWidth) or 130)
-	V.wmMaxWidth = math.max(V.wmMinWidth, tonumber(options.watermarkMaxWidth) or 720)
+	V.wmMinWidth = math.max(80, tonumber(options.watermarkMinWidth) or 220)
+	V.wmMaxWidth = math.max(V.wmMinWidth, tonumber(options.watermarkMaxWidth) or 1200)
 	V.wmMinHeight = math.max(20, tonumber(options.watermarkMinHeight) or 24)
 	V.wmMaxHeight = math.max(V.wmMinHeight, tonumber(options.watermarkMaxHeight) or 64)
 	local _requestedWatermarkWidth = tonumber(options.watermarkWidth or options.topRightBarWidth or options.statusBarWidth)
@@ -2632,7 +2632,7 @@ function Library:new(options)
 		V.wmAutoSize = options.watermarkAutoSize ~= false
 	end
 	V.wmResizable = false -- v5.46: resize handle removed; keep size APIs only for compatibility
-	V.wmWidth = math.clamp(_requestedWatermarkWidth or math.clamp(textWidth(tostring(options.watermark or options.name or "VenturaUI"), 13, Enum.Font.RobotoMono) + 38, V.wmMinWidth, V.wmMaxWidth), V.wmMinWidth, V.wmMaxWidth)
+	V.wmWidth = math.clamp(_requestedWatermarkWidth or math.clamp(textWidth(tostring(options.watermark or options.name or "VenturaUI"), 13, Enum.Font.RobotoMono) + 54, V.wmMinWidth, V.wmMaxWidth), V.wmMinWidth, V.wmMaxWidth)
 	V.wmHeight = math.clamp(_requestedWatermarkHeight or 30, V.wmMinHeight, V.wmMaxHeight)
 	V.wmResizeHandle, V.wmAccent = nil, nil
 	V._wmResizing = false
@@ -3979,7 +3979,7 @@ function Library:new(options)
 	end
 
 	local function _watermarkContentWidth(text)
-		return math.clamp(math.floor(textWidth(text or "", _watermarkScaledTextSize(), Enum.Font.RobotoMono) + 38 + 0.5), V.wmMinWidth, V.wmMaxWidth)
+		return math.clamp(math.floor(textWidth(text or "", _watermarkScaledTextSize(), Enum.Font.RobotoMono) + 54 + 0.5), V.wmMinWidth, V.wmMaxWidth)
 	end
 
 	local function _applyWatermarkSize(width, height, silent)
@@ -12006,7 +12006,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			watermarkStatsVisible = options.watermarkStats ~= false,
 			watermarkRuntimeVisible = options.watermarkRuntime ~= false,
 			watermarkRuntimeLabel = _cfgEsc(options.watermarkRuntimeLabel or "RAN"),
-			watermarkWidth = math.clamp(tonumber(options.watermarkWidth or options.topRightBarWidth or options.statusBarWidth) or textWidth(tostring(options.watermark or options.name or "VenturaUI"), 13, Enum.Font.RobotoMono) + 38, V.wmMinWidth, V.wmMaxWidth),
+			watermarkWidth = math.clamp(tonumber(options.watermarkWidth or options.topRightBarWidth or options.statusBarWidth) or textWidth(tostring(options.watermark or options.name or "VenturaUI"), 13, Enum.Font.RobotoMono) + 54, V.wmMinWidth, V.wmMaxWidth),
 			watermarkHeight = math.clamp(tonumber(options.watermarkHeight or options.topRightBarHeight or options.statusBarHeight) or 30, V.wmMinHeight, V.wmMaxHeight),
 			watermarkAutoSize = (options.watermarkAutoSize ~= false),
 			watermarkX = V.WM_DEFAULT_X,
@@ -12792,7 +12792,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			watermarkStatsVisible = options.watermarkStats ~= false,
 			watermarkRuntimeVisible = options.watermarkRuntime ~= false,
 			watermarkRuntimeLabel = options.watermarkRuntimeLabel or "RAN",
-			watermarkWidth = math.clamp(tonumber(options.watermarkWidth or options.topRightBarWidth or options.statusBarWidth) or textWidth(tostring(options.watermark or options.name or "VenturaUI"), 13, Enum.Font.RobotoMono) + 38, V.wmMinWidth, V.wmMaxWidth),
+			watermarkWidth = math.clamp(tonumber(options.watermarkWidth or options.topRightBarWidth or options.statusBarWidth) or textWidth(tostring(options.watermark or options.name or "VenturaUI"), 13, Enum.Font.RobotoMono) + 54, V.wmMinWidth, V.wmMaxWidth),
 			watermarkHeight = math.clamp(tonumber(options.watermarkHeight or options.topRightBarHeight or options.statusBarHeight) or 30, V.wmMinHeight, V.wmMaxHeight),
 			watermarkAutoSize = options.watermarkAutoSize ~= false,
 			watermarkX = V.WM_DEFAULT_X,
@@ -13611,7 +13611,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 		wmWidthSlider = S:Slider({
 			name     = "Status Bar Width",
-			description = "Manual top-right bar width",
+			description = "Manual top-right bar width with an expanded range",
 			min      = V.wmMinWidth,
 			max      = V.wmMaxWidth,
 			default  = wmStartW,
@@ -13621,7 +13621,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			callbackOnDrop = true,
 			callbackOnDrag = true,
 			callbackThrottle = 0.08,
-			tooltip  = "Dragging this turns Auto Resize off so the manual width can stay fixed.",
+			tooltip  = "Dragging this turns Auto Resize off. The bar can now be widened up to 1200px.",
 			callback = function(v)
 				if GUI:GetWatermarkAutoSize() then
 					GUI:SetWatermarkAutoSize(false, true)
