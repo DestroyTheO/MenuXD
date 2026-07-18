@@ -18,7 +18,13 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.98-atomic-hot-reload"
+Library.Version = "5.99-compatibility-guard"
+Library.Product = "MenuXD"
+Library.BuildId = "5.99.20260717.1dffef4477"
+Library.BuildTimestamp = "2026-07-17T00:00:00Z"
+Library.SourceHash = "1dffef44771f1de716fff875ed4ef73c697cf2a6bfe82cd03c3e7d182da40c1f"
+Library.SourceHashMode = "normalized-sha256"
+Library.ReleaseChannel = "stable"
 
 -- ══════════════════════════════════════════════════════════════════════
 -- RUNTIME GUARD
@@ -46,6 +52,11 @@ local _runtimeRoot do
 	env.__VenturaUIRuntime.pendingStagingCleanup = env.__VenturaUIRuntime.pendingStagingCleanup or nil
 	env.__VenturaUIRuntime.hotReloadGeneration = math.max(0, math.floor(tonumber(env.__VenturaUIRuntime.hotReloadGeneration) or 0))
 	env.__VenturaUIRuntime.lastHotReloadError = env.__VenturaUIRuntime.lastHotReloadError or nil
+	env.__VenturaUIRuntime.previousLibraryVersion = env.__VenturaUIRuntime.libraryVersion or nil
+	env.__VenturaUIRuntime.previousLibraryBuildId = env.__VenturaUIRuntime.libraryBuildId or nil
+	env.__VenturaUIRuntime.previousLibrarySourceHash = env.__VenturaUIRuntime.librarySourceHash or nil
+	env.__VenturaUIRuntime.libraryLoadCount = math.max(0, math.floor(tonumber(env.__VenturaUIRuntime.libraryLoadCount) or 0)) + 1
+	env.__VenturaUIRuntime.lastLibraryLoadClock = os.clock()
 	_runtimeRoot = env.__VenturaUIRuntime
 end
 
@@ -1907,6 +1918,88 @@ local function hasFileAPI()
 		and type(makefolder) == "function"
 end
 
+local function _adler32(text)
+	text = tostring(text or "")
+	local a, b = 1, 0
+	for i = 1, #text do
+		a = (a + string.byte(text, i)) % 65521
+		b = (b + a) % 65521
+	end
+	return string.format("%08x", b * 65536 + a)
+end
+
+local function _globalFunction(name)
+	local env = _G
+	pcall(function()
+		if type(getgenv) == "function" then env = getgenv() end
+	end)
+	local value = nil
+	pcall(function() value = env and env[name] end)
+	if type(value) == "function" then return value end
+	pcall(function() value = _G and _G[name] end)
+	return type(value) == "function" and value or nil
+end
+
+local function _detectExecutorName()
+	local identify = _globalFunction("identifyexecutor") or _globalFunction("getexecutorname")
+	if identify then
+		local ok, name, version = pcall(identify)
+		if ok then
+			return tostring(name or "Unknown"), version and tostring(version) or nil
+		end
+	end
+	return "Unknown", nil
+end
+
+local function _collectCompatibilityReport()
+	local executorName, executorVersion = _detectExecutorName()
+	local synTable = type(syn) == "table" and syn or nil
+	local cryptTable = type(crypt) == "table" and crypt or (synTable and type(synTable.crypt) == "table" and synTable.crypt or nil)
+	local capabilities = {
+		loadstring = type(loadstring) == "function",
+		gethui = type(gethui) == "function",
+		fileAPI = hasFileAPI(),
+		clipboard = type(setclipboard) == "function" or type(toclipboard) == "function",
+		httpRequest = type(request) == "function" or type(http_request) == "function" or (synTable and type(synTable.request) == "function") or false,
+		queueOnTeleport = type(queue_on_teleport) == "function" or (synTable and type(synTable.queue_on_teleport) == "function") or false,
+		taskCancel = type(task) == "table" and type(task.cancel) == "function",
+		cloneref = type(cloneref) == "function",
+		protectGui = type(protectgui) == "function" or (synTable and type(synTable.protect_gui) == "function") or false,
+		cryptHash = cryptTable and type(cryptTable.hash) == "function" or false,
+		getgenv = type(getgenv) == "function",
+		debugInfo = type(debug) == "table" and type(debug.info) == "function",
+		getconnections = type(getconnections) == "function",
+		sethiddenproperty = type(sethiddenproperty) == "function",
+	}
+	local criticalMissing = {}
+	if type(game) ~= "userdata" and type(game) ~= "table" then table.insert(criticalMissing, "game") end
+	if type(Instance) ~= "table" or type(Instance.new) ~= "function" then table.insert(criticalMissing, "Instance.new") end
+	if type(task) ~= "table" or type(task.spawn) ~= "function" or type(task.wait) ~= "function" then table.insert(criticalMissing, "task scheduler") end
+	if not LP then table.insert(criticalMissing, "Players.LocalPlayer") end
+	local optionalMissing = {}
+	for name, supported in pairs(capabilities) do
+		if supported ~= true then table.insert(optionalMissing, name) end
+	end
+	table.sort(optionalMissing)
+	local tier = #criticalMissing > 0 and "limited" or ((capabilities.gethui and capabilities.taskCancel and capabilities.fileAPI) and "full" or "standard")
+	return {
+		executor = executorName,
+		executorVersion = executorVersion,
+		tier = tier,
+		criticalOK = #criticalMissing == 0,
+		criticalMissing = criticalMissing,
+		optionalMissing = optionalMissing,
+		capabilities = capabilities,
+		recommendations = {
+			usePlayerGuiFallback = capabilities.gethui ~= true,
+			disableConfigPersistence = capabilities.fileAPI ~= true,
+			useTokenCancellation = capabilities.taskCancel ~= true,
+			enableSafeLoad = tier == "limited",
+			enableMinimalMode = tier == "limited",
+		},
+	}
+end
+
 local function ensureFolder(path)
 	if not hasFileAPI() then return false end
 	local ok = pcall(function()
@@ -2169,6 +2262,16 @@ function Library:new(options)
 		hotReloadKeepOldOnError = true, -- failed staging builds leave the old UI untouched
 		hotReloadTransferSelectedTab = true,
 		hotReloadTransferPosition = true,
+		compatibilityMode = "auto", -- auto, safe, strict, or off
+		strictCompatibility = false,
+		controlErrorIsolation = true, -- one failed component will not stop the rest of the UI
+		cleanupVerification = true,
+		configLastGood = true,
+		configChecksums = true,
+		minimalMode = false, -- disables decorative/background work while preserving controls
+		cacheDiagnostics = true,
+		expectedVersion = nil,
+		expectedBuildId = nil,
 		respawnReuseWindow = 6, -- seconds in which one immediate respawn builder pass may be absorbed
 		reconnectOnRespawn = false, -- opt-in only; prevents heavy callbacks replaying after every respawn
 		reconnectDelay   = 0.85,
@@ -2206,6 +2309,53 @@ function Library:new(options)
 		configSchemaVersion = 2,
 		normalizedPosition = true,
 	}, options)
+
+	local _compatibilityReport = _collectCompatibilityReport()
+	local _compatibilityMode = tostring(options.compatibilityMode or "auto"):lower()
+	if options.compatibilityMode == true then _compatibilityMode = "safe" end
+	if options.compatibilityMode == false then _compatibilityMode = "off" end
+	if _compatibilityMode ~= "auto" and _compatibilityMode ~= "safe" and _compatibilityMode ~= "strict" and _compatibilityMode ~= "off" then
+		_compatibilityMode = "auto"
+	end
+	if (_compatibilityMode == "strict" or options.strictCompatibility == true) and not _compatibilityReport.criticalOK then
+		error("VenturaUI compatibility check failed: " .. table.concat(_compatibilityReport.criticalMissing, ", "), 0)
+	end
+	local _safeCompatibility = _compatibilityMode == "safe" or (_compatibilityMode == "auto" and _compatibilityReport.tier == "limited")
+	if _safeCompatibility then
+		options.safeLoad = true
+		options.slowLoad = true
+		options.controlErrorIsolation = true
+		options.hotReloadKeepOldOnError = true
+		options.reconnectOnRespawn = false
+		options.animationFPSCap = math.min(tonumber(options.animationFPSCap) or 15, 15)
+	end
+	if not _compatibilityReport.capabilities.fileAPI then
+		options.autoSave = false
+		options.autoLoad = false
+		options.autoLoadConfig = false
+		options.configAutoLoad = false
+	end
+	if options.minimalMode == true or (_safeCompatibility and _compatibilityReport.tier == "limited") then
+		options.minimalMode = true
+		options.watermarkStats = false
+		options.watermarkRuntime = false
+		options.floatingMiniUI = false
+		options.miniUI = false
+		options.animationStarCount = 0
+		options.animationFPSCap = 10
+		options.performanceMode = "low"
+		options.safeLoad = true
+		options.lazyTabs = true
+		options.loadingTime = 0
+	end
+	if options.expectedVersion and tostring(options.expectedVersion) ~= Library.Version then
+		local message = "Expected MenuXD " .. tostring(options.expectedVersion) .. " but loaded " .. Library.Version
+		if options.strictCompatibility == true then error(message, 0) else warn("[VenturaUI] " .. message) end
+	end
+	if options.expectedBuildId and tostring(options.expectedBuildId) ~= Library.BuildId then
+		local message = "Expected build " .. tostring(options.expectedBuildId) .. " but loaded " .. Library.BuildId
+		if options.strictCompatibility == true then error(message, 0) else warn("[VenturaUI] " .. message) end
+	end
 
 	if options.theme and Library.Themes and Library.Themes[options.theme] then
 		local bootTheme = Library.Themes[options.theme]
@@ -2358,7 +2508,7 @@ function Library:new(options)
 		return UDim2.new(0, x, 0, y)
 	end
 
-	local GUI = {CurrentTab=nil, _tabs={}, _open=true, _accentObjects={}, _themeObjects={}, _themeListeners={}, _keybindWidgets={}, _activeKeybind=nil, _configControls={}, _controls={}, _toggleControls={}, _reconnectControls={}, _reconnectCallbacks={}, _loadedConfigData=nil, _configApplying=false, _destroyCallbacks={}, _cleanupCallbacks={}, _trackedProperties={}, _trackedHumanoidProperties={}, _trackedInstances={}, _ownerBuckets={}, _callbackStats={}, _callbackActive={}, _callbackHistory={}, _configMigrations={}, _values={}, _lastCallbackFailure=nil, _activityStopped=false, _closing=false, _reconnectEnabled=(options.reconnectOnRespawn == true), _reconnectDelay=tonumber(options.reconnectDelay) or 0.85, _respawnToken=0}
+	local GUI = {CurrentTab=nil, _tabs={}, _open=true, _accentObjects={}, _themeObjects={}, _themeListeners={}, _keybindWidgets={}, _activeKeybind=nil, _configControls={}, _controls={}, _toggleControls={}, _reconnectControls={}, _reconnectCallbacks={}, _loadedConfigData=nil, _configApplying=false, _destroyCallbacks={}, _cleanupCallbacks={}, _trackedProperties={}, _trackedHumanoidProperties={}, _trackedInstances={}, _ownerBuckets={}, _callbackStats={}, _callbackActive={}, _callbackHistory={}, _configMigrations={}, _values={}, _lastCallbackFailure=nil, _controlBuildErrors={}, _cleanupReports={}, _compatibilityReport=_compatibilityReport, _minimalMode=(options.minimalMode == true), _activityStopped=false, _closing=false, _reconnectEnabled=(options.reconnectOnRespawn == true), _reconnectDelay=tonumber(options.reconnectDelay) or 0.85, _respawnToken=0}
 
 	-- v5.77 Safe / Slow Load ----------------------------------------------------
 	-- Heavy theme/settings pages can be built in small chunks. This keeps the UI
@@ -3094,6 +3244,240 @@ function Library:new(options)
 			end
 		end))
 
+
+
+		function GUI:GetBuildInfo()
+			return {
+				product=Library.Product,
+				version=Library.Version,
+				buildId=Library.BuildId,
+				buildTimestamp=Library.BuildTimestamp,
+				sourceHash=Library.SourceHash,
+				sourceHashMode=Library.SourceHashMode,
+				releaseChannel=Library.ReleaseChannel,
+			}
+		end
+
+		function GUI:GetCompatibilityReport()
+			return table.clone(GUI._compatibilityReport or _collectCompatibilityReport())
+		end
+
+		function GUI:GetCacheDiagnostics(expectedVersion, expectedBuildId)
+			expectedVersion = expectedVersion or options.expectedVersion
+			expectedBuildId = expectedBuildId or options.expectedBuildId
+			local previousVersion = _runtimeRoot.previousLibraryVersion
+			local previousBuildId = _runtimeRoot.previousLibraryBuildId
+			return {
+				ok = (expectedVersion == nil or tostring(expectedVersion) == Library.Version)
+					and (expectedBuildId == nil or tostring(expectedBuildId) == Library.BuildId),
+				version=Library.Version,
+				buildId=Library.BuildId,
+				sourceHash=Library.SourceHash,
+				expectedVersion=expectedVersion,
+				expectedBuildId=expectedBuildId,
+				previousVersion=previousVersion,
+				previousBuildId=previousBuildId,
+				loadCount=tonumber(_runtimeRoot.libraryLoadCount) or 1,
+				sameAsPrevious=previousBuildId ~= nil and previousBuildId == Library.BuildId,
+				lastBuilderAction=tostring(_runtimeRoot.lastBuilderAction or "none"),
+			}
+		end
+
+		function GUI:_recordControlBuildError(tab, kind, opts, err, retry)
+			local entry = {
+				id = "build-error-" .. tostring(#GUI._controlBuildErrors + 1),
+				tab = tab and tostring(tab._name or "Unknown") or "Unknown",
+				kind = tostring(kind or "Control"),
+				name = tostring(type(opts) == "table" and (opts.name or opts.title or opts.text or opts.id) or kind or "Control"),
+				error = tostring(err or "unknown build error"),
+				at = os.clock(),
+				retry = retry,
+			}
+			table.insert(GUI._controlBuildErrors, 1, entry)
+			while #GUI._controlBuildErrors > 100 do table.remove(GUI._controlBuildErrors) end
+			warn("[VenturaUI] " .. entry.kind .. " '" .. entry.name .. "' failed to build: " .. entry.error)
+			return entry
+		end
+
+		function GUI:_makeFailedControl(entry)
+			local failed = {Failed=true, Error=entry.error, BuildError=entry, Value=nil, frame=nil}
+			function failed:IsFailed() return true end
+			function failed:GetError() return self.Error end
+			function failed:Get() return self.Value end
+			function failed:Set(value) self.Value=value; return self end
+			function failed:Show() return self end
+			function failed:Hide() return self end
+			function failed:Enable() return self end
+			function failed:Disable() return self end
+			function failed:Destroy() self.Destroyed=true; return nil end
+			function failed:Retry()
+				if type(entry.retry) ~= "function" then return nil, "retry unavailable" end
+				return entry.retry()
+			end
+			setmetatable(failed, {__index=function() return function(self) return self end end})
+			return failed
+		end
+
+
+		function GUI:_InstallTabBuildIsolation(Tab)
+			if options.controlErrorIsolation == false or Tab._buildIsolationInstalled then return Tab end
+			Tab._buildIsolationInstalled = true
+			local componentBuilders = {
+				"ActionRow","Alert","Badge","Button","ButtonGrid","CardGroup","Chip","CodeBlock","CollapsibleGroup","CollapsibleSection",
+				"ColorPicker","Columns","ControlGroup","ControlHint","CopyButton","Divider","Dropdown","Group","Groupbox","Hyperlink","Image",
+				"Info","KeyValue","Keybind","Label","LogConsole","MiniStat","MultiDropdown","NumberDisplay","Paragraph","ProgressBar",
+				"SearchBox","SearchDropdown","Section","Segmented","Separator","Slider","Spacer","StatusCard","Stepper","Success","TextInput",
+				"Toggle","ToggleButton","Warning"
+			}
+			for _, methodName in ipairs(componentBuilders) do
+				local originalBuilder = Tab[methodName]
+				if type(originalBuilder) == "function" then
+					Tab[methodName] = function(self, builderOptions, ...)
+						local extra = table.pack(...)
+						local function build()
+							return originalBuilder(self, builderOptions, table.unpack(extra, 1, extra.n))
+						end
+						local ok, result = xpcall(build, function(err)
+							if type(debug) == "table" and type(debug.traceback) == "function" then return debug.traceback(tostring(err), 2) end
+							return tostring(err)
+						end)
+						if ok then return result end
+						local entry
+						entry = GUI:_recordControlBuildError(self, methodName, builderOptions, result, function()
+							local retryOK, retryResult = xpcall(build, function(err) return tostring(err) end)
+							if retryOK then return retryResult end
+							entry.error = tostring(retryResult)
+							return nil, retryResult
+						end)
+						return GUI:_makeFailedControl(entry)
+					end
+				end
+			end
+			-- Keep common aliases pointed at the protected builders.
+			if Tab.StatusCard then Tab.Status=Tab.StatusCard; Tab.StatusValue=Tab.StatusCard; Tab.StatusRow=Tab.StatusCard end
+			if Tab.Dropdown then Tab.MultiDropdown=Tab.MultiDropdown or Tab.Dropdown end
+			return Tab
+		end
+
+		function GUI:GetControlBuildErrors()
+			local out = {}
+			for i, entry in ipairs(GUI._controlBuildErrors) do
+				out[i] = {id=entry.id, tab=entry.tab, kind=entry.kind, name=entry.name, error=entry.error, at=entry.at}
+			end
+			return out
+		end
+
+		function GUI:ClearControlBuildErrors()
+			table.clear(GUI._controlBuildErrors)
+			return true
+		end
+
+		function GUI:RetryControlBuild(idOrIndex)
+			local entry = type(idOrIndex) == "number" and GUI._controlBuildErrors[idOrIndex] or nil
+			if not entry then
+				for _, candidate in ipairs(GUI._controlBuildErrors) do
+					if candidate.id == tostring(idOrIndex) then entry = candidate; break end
+				end
+			end
+			if not entry or type(entry.retry) ~= "function" then return nil, "build error not found or retry unavailable" end
+			return entry.retry()
+		end
+
+		function GUI:VerifyOwnerCleanup(owner)
+			local name = ownerName(owner)
+			local value = GUI._ownerBuckets[name]
+			local report = {owner=name, exists=value ~= nil, released=value and value.released == true or false, connections=0, instances=0, cleanups=0}
+			if value then
+				for _, connection in ipairs(value.connections or {}) do
+					if connection and connection.Connected ~= false then report.connections = report.connections + 1 end
+				end
+				for _, instance in ipairs(value.instances or {}) do
+					if instance and instance.Parent then report.instances = report.instances + 1 end
+				end
+				report.cleanups = #(value.cleanups or {})
+			end
+			report.ok = report.connections == 0 and report.instances == 0 and report.cleanups == 0
+			report.checkedAt = os.clock()
+			GUI._cleanupReports[name] = report
+			return report
+		end
+
+		function GUI:VerifyControlCleanup(controlOrId)
+			local control = type(controlOrId) == "table" and controlOrId or GUI:GetControl(controlOrId)
+			if not control then return {ok=true, missing=true, id=tostring(controlOrId)} end
+			return GUI:VerifyOwnerCleanup(control._ownerKey or control.GetOwner and control:GetOwner() or tostring(controlOrId))
+		end
+
+		function GUI:DestroyControl(id)
+			local control = GUI:GetControl(id)
+			if not control then return false, {ok=true, missing=true, id=tostring(id)} end
+			local owner = control._ownerKey
+			local ok, err = pcall(function() control:Destroy() end)
+			local report = GUI:VerifyOwnerCleanup(owner)
+			return ok and report.ok, report, ok and nil or tostring(err)
+		end
+
+		function GUI:GetCleanupReports()
+			local out = {}
+			for name, report in pairs(GUI._cleanupReports) do out[name] = table.clone(report) end
+			return out
+		end
+
+		function GUI:RunCleanupTest()
+			local owner = "cleanup-self-test:" .. tostring(os.clock())
+			GUI:CreateOwner(owner)
+			local event = Instance.new("BindableEvent")
+			GUI:TrackOwnedInstance(owner, event)
+			GUI:TrackOwnedConnection(owner, event.Event:Connect(function() end))
+			GUI:RegisterOwnedCleanup(owner, function() end, "self-test")
+			GUI:ReleaseOwner(owner, "self-test")
+			local report = GUI:VerifyOwnerCleanup(owner)
+			report.test = "owner-cleanup"
+			return report
+		end
+
+		function GUI:ValidateConfigData(data)
+			if type(data) ~= "table" then return false, "config root must be a table" end
+			local entries = 0
+			local seen = {}
+			local function visit(value, depth)
+				local kind = typeof(value)
+				if kind == "nil" or kind == "string" or kind == "number" or kind == "boolean" or kind == "Color3" or kind == "EnumItem" then return true end
+				if kind ~= "table" then return false, "unsupported config value type: " .. tostring(kind) end
+				if seen[value] then return false, "cyclic config table" end
+				if depth > 8 then return false, "config nesting exceeds 8 levels" end
+				seen[value] = true
+				for key, child in pairs(value) do
+					entries = entries + 1
+					if entries > 5000 then return false, "config contains more than 5000 entries" end
+					local keyType = type(key)
+					if keyType ~= "string" and keyType ~= "number" then return false, "unsupported config key type: " .. keyType end
+					local ok, err = visit(child, depth + 1)
+					if not ok then return false, err end
+				end
+				seen[value] = nil
+				return true
+			end
+			return visit(data, 0)
+		end
+
+		function GUI:SetMinimalMode(enabled)
+			enabled = enabled == true
+			GUI._minimalMode = enabled
+			if enabled then
+				GUI:SetPerformanceMode("low")
+				if type(GUI.SetThemeAnimation) == "function" then pcall(function() GUI:SetThemeAnimation(false) end) end
+				if type(GUI.SetThemeOverlayVisible) == "function" then pcall(function() GUI:SetThemeOverlayVisible(false) end) end
+				if V and V.wmFrame then V.wmFrame.Visible = false end
+			else
+				GUI:SetPerformanceMode(tostring(options.performanceMode or "auto"))
+				if V and V.wmFrame then V.wmFrame.Visible = options.watermark ~= false end
+			end
+			return enabled
+		end
+
+		function GUI:GetMinimalMode() return GUI._minimalMode == true end
+
 		function GUI:GetDiagnostics()
 			local runtime = Library:GetRuntimeCounts()
 			local inputHandlers = 0
@@ -3110,6 +3494,12 @@ function Library:new(options)
 				inputHandlers=inputHandlers,
 				owners=GUI:GetOwnerStats(),
 				callbacks=GUI:GetCallbackDiagnostics(),
+				controlBuildErrors=GUI:GetControlBuildErrors(),
+				cleanupReports=GUI:GetCleanupReports(),
+				compatibility=GUI:GetCompatibilityReport(),
+				build=GUI:GetBuildInfo(),
+				cache=GUI:GetCacheDiagnostics(),
+				minimalMode=GUI:GetMinimalMode(),
 				performance=GUI:GetPerformanceState(),
 				reexecution=GUI:GetReexecutePolicy(),
 				position=MainWrap and MainWrap.Position or nil,
@@ -10294,6 +10684,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			return Tab._lazyBuilt == true
 		end
 
+		GUI:_InstallTabBuildIsolation(Tab)
+
 		if isFirst then Tab:_BuildLazy() end
 		return Tab
 	end -- GUI:CreateTab
@@ -12197,21 +12589,43 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		if not hasFileAPI() then return nil end
 		local exists, targetFile = _profileExists(V._cfgProfile)
 		if not exists then return nil end
-		local function decodeFile(path)
+		local function decodeFile(path, verifyChecksum)
 			local ok, raw = pcall(readfile, path)
-			if not ok or not raw or raw == "" then return nil end
+			if not ok or type(raw) ~= "string" or raw == "" then return nil, "unreadable" end
+			if verifyChecksum and options.configChecksums ~= false then
+				local checksumPath = path .. ".checksum"
+				local checksumExistsOK, checksumExists = pcall(isfile, checksumPath)
+				if checksumExistsOK and checksumExists then
+					local checksumOK, expected = pcall(readfile, checksumPath)
+					if checksumOK and tostring(expected or "") ~= _adler32(raw) then return nil, "checksum mismatch" end
+				end
+			end
 			local decodedOK, data = pcall(function() return GUI:_decodeConfig(raw) end)
-			if not decodedOK or type(data) ~= "table" or not next(data) then return nil end
+			if not decodedOK or type(data) ~= "table" or not next(data) then return nil, "decode failed" end
+			local valid, validationError = GUI:ValidateConfigData(data)
+			if not valid then return nil, validationError end
+			return data, nil, raw
+		end
+		local data = decodeFile(targetFile, true)
+		if data then
+			GUI._configRecoveredFromBackup = false
+			GUI._configRecoverySource = "primary"
 			return data
 		end
-		local data = decodeFile(targetFile)
-		if data then GUI._configRecoveredFromBackup = false; return data end
-		local backup = decodeFile(targetFile .. ".bak")
-		if backup then
-			GUI._configRecoveredFromBackup = true
-			warn("[VenturaUI] Current config was invalid; loaded the last valid backup.")
-			return backup
+		local candidates = {
+			{path=targetFile .. ".bak", source="backup"},
+			{path=targetFile .. ".lastgood", source="lastgood"},
+		}
+		for _, candidate in ipairs(candidates) do
+			local recovered = decodeFile(candidate.path, false)
+			if recovered then
+				GUI._configRecoveredFromBackup = true
+				GUI._configRecoverySource = candidate.source
+				warn("[VenturaUI] Current config was invalid; recovered from " .. candidate.source .. ".")
+				return recovered
+			end
 		end
+		GUI._configRecoverySource = "none"
 		return nil
 	end
 
@@ -12240,9 +12654,18 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 					end
 				end
 				local payload = GUI:_configPayload()
+				local decodedOK, decoded = pcall(function() return GUI:_decodeConfig(payload) end)
+				if not decodedOK then error("generated config could not be decoded") end
+				local valid, validationError = GUI:ValidateConfigData(decoded)
+				if not valid then error("generated config validation failed: " .. tostring(validationError)) end
 				writefile(V._cfgFile, payload)
 				local verifyOK, verifyRaw = pcall(readfile, V._cfgFile)
 				if not verifyOK or verifyRaw ~= payload then error("config write verification failed") end
+				if options.configChecksums ~= false then writefile(V._cfgFile .. ".checksum", _adler32(payload)) end
+				if options.configLastGood ~= false then
+					writefile(V._cfgFile .. ".lastgood", payload)
+					if options.configChecksums ~= false then writefile(V._cfgFile .. ".lastgood.checksum", _adler32(payload)) end
+				end
 				if _readAutoLoadEnabled() then _writeAutoLoadProfile(V._cfgProfile) end
 			end)
 			if ok then GUI._configDirty = false else warn("[VenturaUI] SaveConfig failed: " .. tostring(err)) end
@@ -12251,6 +12674,18 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		if force then return writeNow() end
 		task.delay(0.15, writeNow)
 		return true
+	end
+
+	function GUI:GetConfigLastGoodPath(profileName)
+		if profileName then
+			local profile = _profileSanitize(profileName)
+			return V._cfgProfileFolder .. "/" .. _profileFileName(profile) .. ".lastgood"
+		end
+		return V._cfgFile .. ".lastgood"
+	end
+
+	function GUI:GetConfigRecoverySource()
+		return tostring(GUI._configRecoverySource or "none")
 	end
 
 	function GUI:SaveProfile(profileName)
@@ -13684,6 +14119,10 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end)() -- status/task utility module
 	end)() -- visual/control engine module
 
+	if options.minimalMode == true then
+		pcall(function() GUI:SetMinimalMode(true) end)
+	end
+
 	local function _commitWindowBuild()
 		if _atomicStaging then
 			local transferOK, transferResult, transferError = pcall(function()
@@ -13740,16 +14179,49 @@ function Library:GetVersion()
 	return Library.Version
 end
 
+local function _protectedCreateWindow(options)
+	local previousWindow = _runtimeRoot.activeWindow
+	local previousScreenGui = _runtimeRoot.activeScreenGui
+	local ok, result = xpcall(function()
+		return Library:new(options)
+	end, function(err)
+		if type(debug) == "table" and type(debug.traceback) == "function" then return debug.traceback(tostring(err), 2) end
+		return tostring(err)
+	end)
+	if ok then return result end
+	local cleanup = _runtimeRoot.pendingStagingCleanup
+	if type(cleanup) == "function" then pcall(cleanup, "public-create-failed") end
+	_runtimeRoot.pendingStaging = nil
+	_runtimeRoot.pendingStagingCleanup = nil
+	local oldAlive = false
+	pcall(function() oldAlive = previousScreenGui ~= nil and previousScreenGui.Parent ~= nil end)
+	if oldAlive then
+		_runtimeRoot.activeWindow = previousWindow
+		_runtimeRoot.activeScreenGui = previousScreenGui
+		_runtimeRoot.lastBuilderAction = "build-failed-old-kept"
+	else
+		_runtimeRoot.lastBuilderAction = "build-failed"
+	end
+	_runtimeRoot.lastHotReloadError = tostring(result)
+	error("VenturaUI window creation failed: " .. tostring(result), 0)
+end
+
 function Library:CreateWindow(options)
-	return Library:new(options)
+	return _protectedCreateWindow(options)
+end
+
+function Library:SafeCreateWindow(options)
+	local ok, result = pcall(_protectedCreateWindow, options)
+	if ok then return true, result end
+	return false, tostring(result)
 end
 
 function Library:New(options)
-	return Library:new(options)
+	return _protectedCreateWindow(options)
 end
 
 function Library:MakeWindow(options)
-	return Library:new(options)
+	return _protectedCreateWindow(options)
 end
 
 function Library:IsFileAPISupported()
@@ -13863,8 +14335,117 @@ function Library:GetAnimationStyles()
 	return out
 end
 
+
+function Library:GetBuildInfo()
+	return {
+		product=Library.Product,
+		version=Library.Version,
+		buildId=Library.BuildId,
+		buildTimestamp=Library.BuildTimestamp,
+		sourceHash=Library.SourceHash,
+		sourceHashMode=Library.SourceHashMode,
+		releaseChannel=Library.ReleaseChannel,
+	}
+end
+
+function Library:GetCompatibilityReport(refresh)
+	if refresh == true or type(Library._compatibilityReport) ~= "table" then
+		Library._compatibilityReport = _collectCompatibilityReport()
+	end
+	return table.clone(Library._compatibilityReport)
+end
+
+function Library:GetCacheDiagnostics(expectedVersion, expectedBuildId)
+	local report = {
+		version=Library.Version,
+		buildId=Library.BuildId,
+		sourceHash=Library.SourceHash,
+		expectedVersion=expectedVersion,
+		expectedBuildId=expectedBuildId,
+		previousVersion=_runtimeRoot.previousLibraryVersion,
+		previousBuildId=_runtimeRoot.previousLibraryBuildId,
+		previousSourceHash=_runtimeRoot.previousLibrarySourceHash,
+		loadCount=tonumber(_runtimeRoot.libraryLoadCount) or 1,
+		lastBuilderAction=tostring(_runtimeRoot.lastBuilderAction or "none"),
+	}
+	report.versionMatches = expectedVersion == nil or tostring(expectedVersion) == Library.Version
+	report.buildMatches = expectedBuildId == nil or tostring(expectedBuildId) == Library.BuildId
+	report.sameAsPrevious = report.previousBuildId ~= nil and report.previousBuildId == Library.BuildId
+	report.ok = report.versionMatches and report.buildMatches
+	return report
+end
+
+function Library:CreateCacheBustedUrl(url, token)
+	url = tostring(url or "")
+	if url == "" then return url end
+	token = tostring(token or (Library.BuildId .. "-" .. tostring(math.floor(os.clock() * 1000))))
+	local separator = url:find("?", 1, true) and "&" or "?"
+	return url .. separator .. "menuxd_build=" .. token
+end
+
+function Library:ApplyCompatibilityDefaults(options)
+	options = type(options) == "table" and table.clone(options) or {}
+	local report = Library:GetCompatibilityReport()
+	if report.tier == "limited" then
+		options.compatibilityMode = "safe"
+		options.safeLoad = true
+		options.minimalMode = true
+		options.controlErrorIsolation = true
+		options.reconnectOnRespawn = false
+	end
+	if not report.capabilities.fileAPI then
+		options.autoSave = false
+		options.autoLoad = false
+	end
+	return options, report
+end
+
+function Library:AbortPendingStaging(reason)
+	local cleanup = _runtimeRoot.pendingStagingCleanup
+	if type(cleanup) ~= "function" then return false end
+	pcall(cleanup, tostring(reason or "manual-abort"))
+	_runtimeRoot.pendingStaging = nil
+	_runtimeRoot.pendingStagingCleanup = nil
+	_runtimeRoot.lastBuilderAction = "staging-aborted"
+	return true
+end
+
+function Library:RunCleanupTest()
+	local window = _runtimeRoot.activeWindow
+	if window and type(window.RunCleanupTest) == "function" then return window:RunCleanupTest() end
+	return {ok=false, skipped=true, reason="no active MenuXD window"}
+end
+
+function Library:RunReexecuteTest(options)
+	options = type(options) == "table" and options or {}
+	local cases = {}
+	local function add(name, actual, expected)
+		table.insert(cases, {name=name, actual=actual, expected=expected, passed=actual == expected})
+	end
+	local function decide(active, mode, force, insideRespawn, sameCharacter, credits, atomic)
+		mode = tostring(mode or "respawn"):lower()
+		if force then return atomic and "atomic-replace" or "replace" end
+		if active and mode == "always" then return "reuse" end
+		if active and mode == "respawn" and insideRespawn and sameCharacter and (credits or 0) > 0 then return "reuse-respawn" end
+		if active then return atomic and "atomic-replace" or "replace" end
+		return "create"
+	end
+	add("first build", decide(false, "respawn", false, false, false, 0, true), "create")
+	add("normal atomic replacement", decide(true, "respawn", false, false, false, 0, true), "atomic-replace")
+	add("respawn duplicate", decide(true, "respawn", false, true, true, 1, true), "reuse-respawn")
+	add("force rebuild", decide(true, "respawn", true, true, true, 1, true), "atomic-replace")
+	add("compatibility non-atomic", decide(true, "never", false, false, false, 0, false), "replace")
+	local passed = true
+	for _, case in ipairs(cases) do if not case.passed then passed = false end end
+	local report = {ok=passed, dryRun=true, cases=cases, activeWindow=_runtimeRoot.activeWindow ~= nil, lastBuilderAction=tostring(_runtimeRoot.lastBuilderAction or "none")}
+	if options.live == true then
+		report.live = {skipped=true, reason="live test intentionally requires the packaged executor test to avoid replacing the user's active UI"}
+	end
+	return report
+end
+
 function Library:SelfTest()
-	local stabilityFeatures = {"atomic-hot-reload","state-transfer","owned-cleanup","single-input-dispatcher","callback-recovery","control-registry","reactive-values","lazy-builders","config-backup","cancellation-tokens","performance-mode","normalized-position"}
+	local stabilityFeatures = {"build-fingerprint","cache-diagnostics","compatibility-report","safe-create-fallback","control-error-isolation","cleanup-verification","config-checksum","config-last-good","atomic-hot-reload","state-transfer","owned-cleanup","single-input-dispatcher","callback-recovery","control-registry","reactive-values","lazy-builders","cancellation-tokens","minimal-mode","performance-mode","normalized-position","reexecute-self-test"}
 	local guiParentName = "unknown"
 	pcall(function()
 		local parent = getScreenGuiParent()
@@ -13874,6 +14455,10 @@ function Library:SelfTest()
 	return {
 		ok = true,
 		version = Library.Version,
+		build = Library:GetBuildInfo(),
+		cache = Library:GetCacheDiagnostics(),
+		compatibility = Library:GetCompatibilityReport(),
+		reexecute = Library:RunReexecuteTest(),
 		fileAPI = hasFileAPI(),
 		mobile = MOBILE == true,
 		touch = UIS.TouchEnabled == true,
@@ -13887,7 +14472,11 @@ end
 
 -- Cache the parsed library table for lightweight loaders. A cached loader can
 -- avoid downloading and compiling the full source after character-script reruns.
+Library._compatibilityReport = _collectCompatibilityReport()
 _runtimeRoot.libraryCache = Library
 _runtimeRoot.libraryVersion = Library.Version
+_runtimeRoot.libraryBuildId = Library.BuildId
+_runtimeRoot.librarySourceHash = Library.SourceHash
+_runtimeRoot.libraryLoadedAt = os.clock()
 
 return Library
