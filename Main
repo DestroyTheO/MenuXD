@@ -18,11 +18,11 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.99.3-dropdown-state-fix"
+Library.Version = "5.99.4-dropdown-statusbar-fix"
 Library.Product = "MenuXD"
-Library.BuildId = "5.99.3.20260718.d0b68cebd2"
-Library.BuildTimestamp = "2026-07-18T21:27:03.647880Z"
-Library.SourceHash = "d0b68cebd2dad0849f53de22caceb7992584c51fc11d873a62f626eafe71dae7"
+Library.BuildId = "5.99.4.20260718.5e77a01fca"
+Library.BuildTimestamp = "2026-07-18T21:44:21.620132Z"
+Library.SourceHash = "5e77a01fcab1d9b4a93dff850263f3ce8e4d301daefc2f21d5bcb5362dbe2c35"
 Library.SourceHashMode = "metadata-normalized-sha256"
 Library.ReleaseChannel = "stable"
 
@@ -2259,6 +2259,9 @@ function Library:new(options)
 		statusBarMode      = "auto", -- auto, compact, or expanded
 		statusBarCompactBreakpoint = 620,
 		statusBarViewportMargin = 14,
+		statusBarNeverTruncate = true,
+		statusBarMinTextSize = 9,
+		statusBarSectionGap = 12,
 		statusBarLeft      = nil,
 		statusBarCenter    = nil,
 		statusBarRight     = nil,
@@ -3356,6 +3359,7 @@ function Library:new(options)
 				popup=popup, anchor=anchor, layer=config.layer or "dropdown",
 				preferredDirection=config.preferredDirection or "auto",
 				width=config.width, height=config.height, serial=GUI._popupSerial,
+				onOpen=config.onOpen, onClose=config.onClose,
 			}
 			GUI._popupRegistry[popup] = record
 			GUI:ApplyZLayer(popup, record.layer, true)
@@ -3371,18 +3375,18 @@ function Library:new(options)
 			return true
 		end
 
-		local function _runPopupHook(record, hookName, reason)
+		local function _notifyPopupState(record, eventName, reason)
 			if not record then return end
-			local hook = record[hookName]
-			if type(hook) == "function" then
-				local ok, err = pcall(hook, record.popup, record, reason)
-				if not ok then warn("[VenturaUI] Popup " .. tostring(hookName) .. " failed: " .. tostring(err)) end
+			local callback = record[eventName]
+			if type(callback) == "function" then
+				local ok, err = pcall(callback, reason)
+				if not ok then warn("[VenturaUI] Popup state callback failed: " .. tostring(err)) end
 			end
 		end
 
 		function GUI:CloseAllPopups(exceptPopup, reason)
 			for popup in pairs(GUI._popupRegistry) do
-				if popup ~= exceptPopup then GUI:ClosePopup(popup, reason or "close-all") end
+				if popup ~= exceptPopup then GUI:ClosePopup(popup, reason or "another-popup-opened") end
 			end
 			return true
 		end
@@ -3398,7 +3402,7 @@ function Library:new(options)
 			local wasVisible = popup.Visible == true
 			popup.Visible = true
 			GUI:PositionPopup(popup, record.anchor, record.width, record.height, record.preferredDirection)
-			if not wasVisible then _runPopupHook(record, "onOpen", "open") end
+			if not wasVisible then _notifyPopupState(record, "onOpen", "opened") end
 			return true
 		end
 
@@ -3406,7 +3410,7 @@ function Library:new(options)
 			local record = GUI._popupRegistry[popup]
 			local wasVisible = popup and popup.Parent and popup.Visible == true
 			if popup and popup.Parent then popup.Visible = false end
-			if wasVisible then _runPopupHook(record, "onClose", reason or "close") end
+			if wasVisible then _notifyPopupState(record, "onClose", reason or "closed") end
 			return true
 		end
 
@@ -4293,34 +4297,74 @@ function Library:new(options)
 	local function _watermarkContentWidth(left, center, right)
 		local mode = _resolvedStatusBarMode()
 		local size = _watermarkScaledTextSize()
-		local content = mode == "compact" and (tostring(left or "") .. tostring(right or "")) or (tostring(left or "") .. tostring(center or "") .. tostring(right or ""))
-		local padding = mode == "compact" and 48 or 78
+		local values = {tostring(left or "")}
+		if mode == "expanded" and tostring(center or "") ~= "" then table.insert(values, tostring(center)) end
+		if tostring(right or "") ~= "" then table.insert(values, tostring(right)) end
+		local total = 26
+		for index, value in ipairs(values) do
+			total = total + textWidth(value, size, Enum.Font.RobotoMono) + 4
+			if index > 1 then total = total + math.max(4, tonumber(options.statusBarSectionGap) or 12) end
+		end
 		local viewportMax = _statusBarViewportMax()
 		local minimum = math.min(V.wmMinWidth, viewportMax)
-		return math.clamp(math.floor(textWidth(content, size, Enum.Font.RobotoMono) + padding + 0.5), minimum, math.min(V.wmMaxWidth, viewportMax))
+		return math.clamp(math.floor(total + 0.5), minimum, math.min(V.wmMaxWidth, viewportMax))
 	end
 
 	local function _layoutWatermarkSections()
-		if not V.wmFrame then return end
+		if not V.wmFrame or not V.wmLeftLbl then return end
 		local mode = _resolvedStatusBarMode()
-		local verySmall = V.wmWidth < 290
 		local leftInset, rightInset = 16, 10
-		if V.wmLeftLbl then
-			V.wmLeftLbl.Position = UDim2.new(0, leftInset, 0, 0)
-			V.wmLeftLbl.Size = mode == "expanded" and UDim2.new(0.40, -leftInset, 1, 0) or UDim2.new(0.58, -leftInset, 1, 0)
-			V.wmLeftLbl.TextXAlignment = Enum.TextXAlignment.Left
+		local gap = math.max(4, tonumber(options.statusBarSectionGap) or 12)
+		local baseSize = _watermarkScaledTextSize()
+		local minimumSize = math.clamp(math.floor(tonumber(options.statusBarMinTextSize) or 9), 8, baseSize)
+		local labels = {V.wmLeftLbl}
+		V.wmCenterLbl.Visible = mode == "expanded" and tostring(V.wmCenterLbl.Text or "") ~= ""
+		V.wmRightLbl.Visible = tostring(V.wmRightLbl.Text or "") ~= ""
+		if V.wmCenterLbl.Visible then table.insert(labels, V.wmCenterLbl) end
+		if V.wmRightLbl.Visible then table.insert(labels, V.wmRightLbl) end
+
+		local available = math.max(40, V.wmWidth - leftInset - rightInset - gap * math.max(0, #labels - 1))
+		local function measure(textSize)
+			local widths, total = {}, 0
+			for index, label in ipairs(labels) do
+				local width = math.max(22, math.ceil(textWidth(tostring(label.Text or ""), textSize, Enum.Font.RobotoMono) + 4))
+				widths[index] = width
+				total = total + width
+			end
+			return widths, total
 		end
-		if V.wmCenterLbl then
-			V.wmCenterLbl.Visible = mode == "expanded" and not verySmall
-			V.wmCenterLbl.Position = UDim2.new(0.40, 0, 0, 0)
-			V.wmCenterLbl.Size = UDim2.new(0.30, 0, 1, 0)
-			V.wmCenterLbl.TextXAlignment = Enum.TextXAlignment.Center
+
+		local textSize = baseSize
+		local widths, desired = measure(textSize)
+		if desired > available then
+			textSize = math.max(minimumSize, math.floor(baseSize * (available / math.max(desired, 1))))
+			widths, desired = measure(textSize)
 		end
-		if V.wmRightLbl then
-			V.wmRightLbl.Visible = not verySmall
-			V.wmRightLbl.Position = mode == "expanded" and UDim2.new(0.70, 0, 0, 0) or UDim2.new(0.58, 0, 0, 0)
-			V.wmRightLbl.Size = mode == "expanded" and UDim2.new(0.30, -rightInset, 1, 0) or UDim2.new(0.42, -rightInset, 1, 0)
-			V.wmRightLbl.TextXAlignment = Enum.TextXAlignment.Right
+
+		local forceScale = desired > available
+		local x = leftInset
+		local remaining = available
+		local desiredRemaining = desired
+		for index, label in ipairs(labels) do
+			local width = widths[index]
+			if forceScale then
+				if index == #labels then
+					width = remaining
+				else
+					width = math.max(22, math.floor(remaining * (width / math.max(desiredRemaining, 1))))
+				end
+			elseif index == #labels then
+				width = width + math.max(0, remaining - desiredRemaining)
+			end
+			label.Position = UDim2.new(0, x, 0, 0)
+			label.Size = UDim2.new(0, math.max(1, width), 1, 0)
+			label.TextSize = textSize
+			label.TextTruncate = Enum.TextTruncate.None
+			label.TextScaled = forceScale and options.statusBarNeverTruncate ~= false
+			label.TextXAlignment = index == 1 and Enum.TextXAlignment.Left or (index == #labels and Enum.TextXAlignment.Right or Enum.TextXAlignment.Center)
+			x = x + width + gap
+			remaining = math.max(0, remaining - width)
+			desiredRemaining = math.max(0, desiredRemaining - widths[index])
 		end
 	end
 
@@ -4556,7 +4600,11 @@ function Library:new(options)
 			label.TextColor3 = Library.Theme.TextPrimary
 			label.TextXAlignment = alignment
 			label.TextYAlignment = Enum.TextYAlignment.Center
-			label.TextTruncate = Enum.TextTruncate.AtEnd
+			label.TextTruncate = Enum.TextTruncate.None
+			label.TextScaled = false
+			local sizeConstraint = Instance.new("UITextSizeConstraint", label)
+			sizeConstraint.MinTextSize = math.max(8, tonumber(options.statusBarMinTextSize) or 9)
+			sizeConstraint.MaxTextSize = 32
 			pcall(function() label:SetAttribute("VenturaTextRole", "TextPrimary") end)
 			return label
 		end
@@ -9203,8 +9251,6 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			if opts.multi and type(opts.default)=="table" then for _,v in ipairs(opts.default) do DD.Multi[v]=true end end
 			local hasDesc=tostring(opts.description or "") ~= ""
 			local closedH=hasDesc and 64 or 54
-			local rowH=34
-			local maxVisible=math.clamp(tonumber(opts.maxVisible) or 7, 2, 15)
 			DD.frame=base("Dropdown",closedH); DD.frame.ClipsDescendants=false; pad(DD.frame,0,0,0,0)
 			local st=DD.frame:FindFirstChildOfClass("UIStroke")
 			local header=Instance.new("TextButton",DD.frame)
@@ -9240,42 +9286,35 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			optPanel.Visible=false; optPanel.ZIndex=4
 			corner(optPanel,9); stroke(optPanel,Library.Theme.BorderHover,1.25)
 			GUI:RegisterPopup(optPanel, DD.frame, {layer="dropdown", preferredDirection=options.popupPreferredDirection})
-			local optHolder=Instance.new("ScrollingFrame",optPanel)
+			local optHolder=Instance.new("Frame",optPanel)
 			optHolder.BackgroundTransparency=1; optHolder.BorderSizePixel=0
 			optHolder.Size=UDim2.new(1,-14,0,0); optHolder.Position=UDim2.new(0,7,0,7)
 			optHolder.Visible=true; optHolder.ZIndex=5
-			optHolder.CanvasSize=UDim2.new(0,0,0,0)
-			optHolder.AutomaticCanvasSize=Enum.AutomaticSize.None
-			optHolder.ScrollBarThickness=2
-			optHolder.ScrollBarImageColor3=Library.Theme.BorderHover
-			optHolder.ScrollingDirection=Enum.ScrollingDirection.Y
-			optHolder.ElasticBehavior=Enum.ElasticBehavior.Never
-			optHolder.ClipsDescendants=true
 			local ol=Instance.new("UIListLayout",optHolder); ol.Padding=UDim.new(0,5); ol.SortOrder=Enum.SortOrder.LayoutOrder
-			local function applyOpenVisuals(open)
-				DD.Open = open == true
+			local function applyOpenState(v)
+				DD.Open=v==true
 				tw(arrowImg,{Rotation=DD.Open and 180 or 0})
 				tw(st,{Color=DD.Open and Library.Theme.BorderHover or Library.Theme.Border})
 				tw(valueStroke,{Color=DD.Open and Library.Theme.Accent or Library.Theme.BorderHover})
 			end
 			local function setOpen(v)
-				local open = v == true
+				local open=v==true
 				if open then
 					GUI:OpenPopup(optPanel, DD.frame, {layer="dropdown", height=optPanel.AbsoluteSize.Y > 0 and optPanel.AbsoluteSize.Y or 120})
 				else
-					GUI:ClosePopup(optPanel, "dropdown-close")
+					GUI:ClosePopup(optPanel, "dropdown-closed")
 				end
-				applyOpenVisuals(open)
+				applyOpenState(open)
 			end
 			GUI:UpdatePopup(optPanel, {
-				onClose=function() applyOpenVisuals(false) end,
-				onOpen=function() applyOpenVisuals(true) end,
+				onOpen=function() applyOpenState(true) end,
+				onClose=function() applyOpenState(false) end,
 			})
 			DD._popup=optPanel
 			DD._setOpen=setOpen
 			local function refresh()
 				for _,c in ipairs(optHolder:GetChildren()) do if c:IsA("TextButton") then c:Destroy() end end
-				local total=0
+				local rowH,total=34,0
 				for _,item in ipairs(opts.items) do
 					local isSel=(opts.multi and DD.Multi[item]) or (not opts.multi and DD.Selected==item)
 					local opt=Instance.new("TextButton",optHolder)
@@ -9310,12 +9349,9 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 					total=total+rowH+5
 				end
 				total=math.max(total-5,0)
-				local visibleRows=math.min(math.max(#opts.items,1), maxVisible)
-				local visibleHeight=(visibleRows*rowH)+math.max(visibleRows-1,0)*5
-				optHolder.Size=UDim2.new(1,-14,0,visibleHeight)
-				optHolder.CanvasSize=UDim2.new(0,0,0,total)
+				optHolder.Size=UDim2.new(1,-14,0,total)
 				local panelWidth = math.max(180, DD.frame.AbsoluteSize.X - 24)
-				local panelHeight = math.max(28, visibleHeight + 14)
+				local panelHeight = math.max(28, total + 14)
 				optPanel.Size=UDim2.new(0,panelWidth,0,panelHeight)
 				GUI:UpdatePopup(optPanel, {width=panelWidth, height=panelHeight})
 				DD.frame.Size=UDim2.new(1,0,0,closedH)
@@ -9412,16 +9448,20 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				end
 				return out
 			end
-			local function applyOpenVisuals(open)
-				DD.Open=open==true
+			local function applyOpenState(v)
+				DD.Open=v==true
 				tw(arrowImg,{Rotation=DD.Open and 180 or 0})
 				tw(st,{Color=DD.Open and Library.Theme.BorderHover or Library.Theme.Border})
 				tw(valueStroke,{Color=DD.Open and Library.Theme.Accent or Library.Theme.BorderHover})
 			end
 			local function setOpen(v)
 				local open=v==true
-				if open then GUI:OpenPopup(optPanel, DD.frame, {layer="dropdown", height=optPanel.AbsoluteSize.Y > 0 and optPanel.AbsoluteSize.Y or 180}) else GUI:ClosePopup(optPanel, "search-dropdown-close") end
-				applyOpenVisuals(open)
+				if open then
+					GUI:OpenPopup(optPanel, DD.frame, {layer="dropdown", height=optPanel.AbsoluteSize.Y > 0 and optPanel.AbsoluteSize.Y or 180})
+				else
+					GUI:ClosePopup(optPanel, "search-dropdown-closed")
+				end
+				applyOpenState(open)
 				if open then
 					if opts.clearSearchOnOpen == true and searchBox.Text ~= "" then
 						searchBox.Text = ""
@@ -9437,11 +9477,11 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				end
 			end
 			GUI:UpdatePopup(optPanel, {
+				onOpen=function() applyOpenState(true) end,
 				onClose=function()
-					applyOpenVisuals(false)
+					applyOpenState(false)
 					pcall(function() searchBox:ReleaseFocus() end)
 				end,
-				onOpen=function() applyOpenVisuals(true) end,
 			})
 			DD._popup=optPanel
 			DD._setOpen=setOpen
@@ -9650,19 +9690,23 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			CP.frame.AncestryChanged:Connect(function()
 				if not CP.frame:IsDescendantOf(game) then for _,c in ipairs(CP._conns) do pcall(function() if type(c)=="function" then c() elseif c and c.Disconnect then c:Disconnect() end end) end end
 			end)
-			local function applyPickerOpen(open)
-				CP.Open=open==true
+			local function applyPickerState(v)
+				CP.Open=v==true
 				CP.frame.Size=UDim2.new(1,0,0,42)
 			end
-			local function setPickerOpen(open)
-				open=open==true
+			local function setPickerOpen(v)
+				local open=v==true
 				local pickerWidth=math.max(230, CP.frame.AbsoluteSize.X)
-				if open then GUI:OpenPopup(picker, CP.frame, {layer="colorpicker", width=pickerWidth, height=114}) else GUI:ClosePopup(picker, "color-picker-close") end
-				applyPickerOpen(open)
+				if open then
+					GUI:OpenPopup(picker, CP.frame, {layer="colorpicker", width=pickerWidth, height=114})
+				else
+					GUI:ClosePopup(picker, "color-picker-closed")
+				end
+				applyPickerState(open)
 			end
 			GUI:UpdatePopup(picker, {
-				onClose=function() applyPickerOpen(false) end,
-				onOpen=function() applyPickerOpen(true) end,
+				onOpen=function() applyPickerState(true) end,
+				onClose=function() applyPickerState(false) end,
 			})
 			CP._popup=picker
 			CP._setOpen=setPickerOpen
@@ -10998,28 +11042,19 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 							self.frame.Active = not self.Disabled
 							pcall(function() tw(self.frame, {BackgroundTransparency = self.Disabled and 0.35 or 0}, TI_FAST) end)
 						end
-						if self.Disabled and type(self._setOpen) == "function" then self._setOpen(false) end
-						return self
-					end
-					function dd:Open()
-						if type(self._setOpen) == "function" then self._setOpen(true) end
 						return self
 					end
 					function dd:Close()
 						if type(self._setOpen) == "function" then
 							self._setOpen(false)
-						elseif self._popup then
-							GUI:ClosePopup(self._popup, "api-close")
+						else
 							self.Open = false
+							if self._popup then GUI:ClosePopup(self._popup, "api-close") end
 						end
 						if self.frame then
 							local closedH = tostring(opts.description or "") ~= "" and 64 or 54
 							self.frame.Size = UDim2.new(1, 0, 0, closedH)
 						end
-						return self
-					end
-					function dd:ToggleOpen()
-						if type(self._setOpen) == "function" then self._setOpen(not self.Open) end
 						return self
 					end
 				end
@@ -11076,19 +11111,15 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 						function dd:SetDisabled(state)
 							self.Disabled = state == true
 							if self.frame then self.frame.Active = not self.Disabled end
-							if self.Disabled and type(self._setOpen) == "function" then self._setOpen(false) end
-							return self
-						end
-						function dd:Open()
-							if type(self._setOpen) == "function" then self._setOpen(true) end
 							return self
 						end
 						function dd:Close()
-							if type(self._setOpen) == "function" then self._setOpen(false) end
-							return self
-						end
-						function dd:ToggleOpen()
-							if type(self._setOpen) == "function" then self._setOpen(not self.Open) end
+							if type(self._setOpen) == "function" then
+								self._setOpen(false)
+							else
+								self.Open = false
+								if self._popup then GUI:ClosePopup(self._popup, "api-close") end
+							end
 							return self
 						end
 					end
