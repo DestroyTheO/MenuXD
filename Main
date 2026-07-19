@@ -18,11 +18,11 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.99.1-global-ui-cleanup"
+Library.Version = "5.99.1-same-library-cleanup"
 Library.Product = "MenuXD"
-Library.BuildId = "5.99.1.1.20260718.bcb650d890"
-Library.BuildTimestamp = "2026-07-19T00:24:07.710400Z"
-Library.SourceHash = "bcb650d89034aea31f92479583a4e5b539fcf0c2ab98c5b08f47f9531f7cec23"
+Library.BuildId = "5.99.1.2.20260718.6259f2776e"
+Library.BuildTimestamp = "2026-07-19T02:01:55.808131Z"
+Library.SourceHash = "6259f2776e9fd1b88893622e3c3a9e34e89e1eeba602b7dc1d589e8d2563af39"
 Library.SourceHashMode = "normalized-sha256"
 Library.ReleaseChannel = "stable"
 
@@ -39,6 +39,7 @@ local _runtimeRoot, _sharedEnv, _globalUIRoot do
 	env = ok and env or _G
 	_sharedEnv = env
 	env.__CrimsonUIRuntime = env.__CrimsonUIRuntime or {
+		libraryId = "MenuXD",
 		generation = 0,
 		activeWindow = nil,
 		activeScreenGui = nil,
@@ -51,6 +52,7 @@ local _runtimeRoot, _sharedEnv, _globalUIRoot do
 		lastCleanupReport = nil,
 		lastCleanupReason = nil,
 	}
+	env.__CrimsonUIRuntime.libraryId = "MenuXD"
 	env.__CrimsonUIRuntime.connections = env.__CrimsonUIRuntime.connections or {}
 	env.__CrimsonUIRuntime.instances = env.__CrimsonUIRuntime.instances or {}
 	env.__CrimsonUIRuntime.threads = env.__CrimsonUIRuntime.threads or {}
@@ -268,11 +270,9 @@ local function _runGlobalUICleanup(reason, preserveWindow)
 	return report
 end
 
--- Shared aliases allow other hubs/loaders to stop the currently active UI.
-_sharedEnv.__CrimsonCleanupCurrentUI = _runGlobalUICleanup
-_sharedEnv.__CrimsonHubCleanup = _runGlobalUICleanup
+-- MenuXD-specific aliases. Other UI libraries are intentionally ignored.
+_sharedEnv.__MenuXDCleanupCurrentUI = _runGlobalUICleanup
 _sharedEnv.__MenuXDGlobalCleanup = _runGlobalUICleanup
-_sharedEnv.CurrentHubCleanup = _runGlobalUICleanup
 
 local function _safeEnumKey(key, fallback)
 	if typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode and key ~= Enum.KeyCode.Unknown then
@@ -545,9 +545,10 @@ function Library:TrackGlobalThread(thread, label)
 	return thread
 end
 
-function Library:RunBeforeOtherUI(reason)
-	return _runGlobalUICleanup(reason or "before-other-ui")
+function Library:RunBeforeAnotherMenuXD(reason)
+	return _runGlobalUICleanup(reason or "before-another-menuxd")
 end
+Library.RunBeforeOtherUI = Library.RunBeforeAnotherMenuXD
 
 function Library:GetRuntimeCounts()
 	local aliveConnections, aliveInstances = 0, 0
@@ -2468,11 +2469,11 @@ function Library:new(options)
 		strictCompatibility = false,
 		controlErrorIsolation = true, -- one failed component will not stop the rest of the UI
 		cleanupVerification = true,
-		globalUICleanup = true, -- register this window as the globally active hub
-		stopOnForeignUI = true, -- stop MenuXD when another likely third-party ScreenGui appears
-		foreignUIWatchDelay = 1.5,
-		foreignUIProbeDelay = 0.30,
-		foreignUIWatchPlayerGui = false, -- disabled by default to avoid game UI false positives
+		globalUICleanup = true, -- replace and stop only the previous MenuXD window
+		stopOnForeignUI = false, -- deprecated; unrelated UI libraries are ignored
+		foreignUIWatchDelay = 0,
+		foreignUIProbeDelay = 0,
+		foreignUIWatchPlayerGui = false,
 		configLastGood = true,
 		configChecksums = true,
 		minimalMode = false, -- disables decorative/background work while preserving controls
@@ -14366,105 +14367,19 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end
 
 
-	local _foreignUIWatchConnections = {}
-	local _foreignUIWatchEnabled = options.stopOnForeignUI ~= false
 
-	local _foreignUIIgnore = {
-		robloxgui=true,
-		robloxpromptgui=true,
-		devconsolemaster=true,
-		purchaseprompt=true,
-		networkpause=true,
-		touchgui=true,
-		chat=true,
-		bubblechat=true,
-		capturemode=true,
-		emotesmenu=true,
-		freecam=true,
-		voicechat=true,
-		themeprovider=true,
-		topbarapp=true,
-	}
-
-	local function _stopForeignUIWatch()
-		for i = #_foreignUIWatchConnections, 1, -1 do
-			local connection = _foreignUIWatchConnections[i]
-			pcall(function()
-				if connection and type(connection.Disconnect) == "function" then connection:Disconnect() end
-			end)
-			_foreignUIWatchConnections[i] = nil
-		end
-	end
-
-	local function _isLikelyForeignUI(candidate)
-		if not candidate or candidate == SG or not candidate:IsA("ScreenGui") then return false end
-		if candidate:GetAttribute("MenuXDIgnoreGlobalCleanup") == true then return false end
-		local name = tostring(candidate.Name or ""):lower()
-		if name == "venturaui" or name:find("venturaui_staging", 1, true) == 1 then return false end
-		if _foreignUIIgnore[name] then return false end
-		for ignored in pairs(_foreignUIIgnore) do
-			if name:find(ignored, 1, true) == 1 then return false end
-		end
-		local parent = candidate.Parent
-		local playerGui = LP and LP:FindFirstChildOfClass("PlayerGui")
-		if parent == playerGui and options.foreignUIWatchPlayerGui ~= true then return false end
-		return true
-	end
-
-	local function _probeForeignUI(candidate)
-		if not _foreignUIWatchEnabled or _destroyed or GUI._activityStopped then return end
-		if not _isLikelyForeignUI(candidate) then return end
-		local delaySeconds = math.clamp(tonumber(options.foreignUIProbeDelay) or 0.30, 0, 2)
-		task.delay(delaySeconds, function()
-			if not _foreignUIWatchEnabled or _destroyed or GUI._activityStopped then return end
-			if not _isLikelyForeignUI(candidate) or not candidate.Parent or candidate.Enabled == false then return end
-			local hasVisual = false
-			pcall(function()
-				hasVisual = candidate:FindFirstChildWhichIsA("GuiObject", true) ~= nil
-			end)
-			if not hasVisual then return end
-			_runGlobalUICleanup("foreign-ui-detected:" .. tostring(candidate.Name), candidate)
-		end)
-	end
-
-	local function _startForeignUIWatch()
-		_stopForeignUIWatch()
-		if not _foreignUIWatchEnabled or options.globalUICleanup == false then return false end
-		local containers = {}
-		local seen = {}
-		local function add(container)
-			if container and not seen[container] then
-				seen[container] = true
-				table.insert(containers, container)
-			end
-		end
-		pcall(function()
-			if type(gethui) == "function" then add(gethui()) end
-		end)
-		pcall(function() add(CoreGui) end)
-		if options.foreignUIWatchPlayerGui == true then
-			pcall(function() add(LP and LP:FindFirstChildOfClass("PlayerGui")) end)
-		end
-
-		for _, container in ipairs(containers) do
-			local connection = container.ChildAdded:Connect(_probeForeignUI)
-			table.insert(_foreignUIWatchConnections, connection)
-			track(connection)
-		end
-		return #_foreignUIWatchConnections > 0
-	end
-
-	function GUI:SetStopOnForeignUI(state)
-		_foreignUIWatchEnabled = state ~= false
-		if _foreignUIWatchEnabled then _startForeignUIWatch() else _stopForeignUIWatch() end
-		return _foreignUIWatchEnabled
+	-- Same-library-only cleanup policy.
+	-- Unrelated ScreenGuis and different UI libraries never trigger cleanup.
+	function GUI:SetStopOnForeignUI(_state)
+		return false
 	end
 	function GUI:GetStopOnForeignUI()
-		return _foreignUIWatchEnabled == true
+		return false
 	end
-	function GUI:StopForAnotherUI(reason)
-		return _runGlobalUICleanup(reason or "GUI:StopForAnotherUI")
+	function GUI:StopForAnotherMenuXD(reason)
+		return _runGlobalUICleanup(reason or "GUI:StopForAnotherMenuXD")
 	end
+	GUI.StopForAnotherUI = GUI.StopForAnotherMenuXD
 	function GUI:GetGlobalCleanupReport()
 		return _globalUIRoot.lastCleanupReport
 	end
@@ -14512,23 +14427,22 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		_runtimeRoot.respawnReuseCredits = 0
 
 		if options.globalUICleanup ~= false then
-			if _globalUIRoot.activeWindow and _globalUIRoot.activeWindow ~= GUI then
-				_runGlobalUICleanup("replaced-by-menuxd", GUI)
+			local previousIsMenuXD = _globalUIRoot.libraryId == "MenuXD"
+				and type(_globalUIRoot.activeOwner) == "string"
+				and _globalUIRoot.activeOwner:find("MenuXD:", 1, true) == 1
+			if previousIsMenuXD and _globalUIRoot.activeWindow and _globalUIRoot.activeWindow ~= GUI then
+				_runGlobalUICleanup("replaced-by-same-menuxd-library", GUI)
 			end
+			_globalUIRoot.libraryId = "MenuXD"
 			_globalUIRoot.activeWindow = GUI
 			_globalUIRoot.activeScreenGui = SG
-			_globalUIRoot.activeOwner = Library.Product .. ":" .. Library.BuildId
+			_globalUIRoot.activeOwner = "MenuXD:" .. Library.BuildId
 			_globalUIRoot.generation = (tonumber(_globalUIRoot.generation) or 0) + 1
 		end
 		return true
 	end
 
 	_commitWindowBuild()
-	if options.stopOnForeignUI ~= false and options.globalUICleanup ~= false then
-		task.delay(math.clamp(tonumber(options.foreignUIWatchDelay) or 1.5, 0, 10), function()
-			if not _destroyed and GUI._activityStopped ~= true then _startForeignUIWatch() end
-		end)
-	end
 	return GUI
 end -- Library:new
 
@@ -14806,7 +14720,7 @@ function Library:RunReexecuteTest(options)
 end
 
 function Library:SelfTest()
-	local stabilityFeatures = {"build-fingerprint","cache-diagnostics","compatibility-report","safe-create-fallback","control-error-isolation","cleanup-verification","config-checksum","config-last-good","atomic-hot-reload","state-transfer","owned-cleanup","single-input-dispatcher","callback-recovery","control-registry","reactive-values","lazy-builders","cancellation-tokens","minimal-mode","performance-mode","normalized-position","reexecute-self-test","global-ui-cleanup","foreign-ui-watcher","tracked-thread-cancellation"}
+	local stabilityFeatures = {"build-fingerprint","cache-diagnostics","compatibility-report","safe-create-fallback","control-error-isolation","cleanup-verification","config-checksum","config-last-good","atomic-hot-reload","state-transfer","owned-cleanup","single-input-dispatcher","callback-recovery","control-registry","reactive-values","lazy-builders","cancellation-tokens","minimal-mode","performance-mode","normalized-position","reexecute-self-test","same-library-cleanup","tracked-thread-cancellation"}
 	local guiParentName = "unknown"
 	pcall(function()
 		local parent = getScreenGuiParent()
