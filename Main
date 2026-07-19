@@ -18,11 +18,11 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.99-compatibility-guard"
+Library.Version = "5.99.1-global-ui-cleanup"
 Library.Product = "MenuXD"
-Library.BuildId = "5.99.1.20260718.68b99b4e88"
-Library.BuildTimestamp = "2026-07-18T00:00:00Z"
-Library.SourceHash = "68b99b4e88b4d49f9ccd33224a8eb23b911556eae3686fcf5dcc120dbe03e648"
+Library.BuildId = "5.99.1.1.20260718.bcb650d890"
+Library.BuildTimestamp = "2026-07-19T00:24:07.710400Z"
+Library.SourceHash = "bcb650d89034aea31f92479583a4e5b539fcf0c2ab98c5b08f47f9531f7cec23"
 Library.SourceHashMode = "normalized-sha256"
 Library.ReleaseChannel = "stable"
 
@@ -32,11 +32,31 @@ Library.ReleaseChannel = "stable"
 -- Prevents old RenderStepped/input connections from staying alive when the
 -- library is re-executed. This fixes duplicate animations, old tooltip loops,
 -- stale resize listeners, and "ghost" UI behavior after reruns.
-local _runtimeRoot do
+local _runtimeRoot, _sharedEnv, _globalUIRoot do
 	local ok, env = pcall(function()
 		return (type(getgenv) == "function" and getgenv()) or shared or _G
 	end)
 	env = ok and env or _G
+	_sharedEnv = env
+	env.__CrimsonUIRuntime = env.__CrimsonUIRuntime or {
+		generation = 0,
+		activeWindow = nil,
+		activeScreenGui = nil,
+		activeOwner = nil,
+		connections = {},
+		instances = {},
+		threads = {},
+		cleanups = {},
+		cleaning = false,
+		lastCleanupReport = nil,
+		lastCleanupReason = nil,
+	}
+	env.__CrimsonUIRuntime.connections = env.__CrimsonUIRuntime.connections or {}
+	env.__CrimsonUIRuntime.instances = env.__CrimsonUIRuntime.instances or {}
+	env.__CrimsonUIRuntime.threads = env.__CrimsonUIRuntime.threads or {}
+	env.__CrimsonUIRuntime.cleanups = env.__CrimsonUIRuntime.cleanups or {}
+	env.__CrimsonUIRuntime.generation = math.max(0, math.floor(tonumber(env.__CrimsonUIRuntime.generation) or 0))
+	_globalUIRoot = env.__CrimsonUIRuntime
 	env.__VenturaUIRuntime = env.__VenturaUIRuntime or { connections = {}, instances = {}, shutdowns = {} }
 	env.__VenturaUIRuntime.connections = env.__VenturaUIRuntime.connections or {}
 	env.__VenturaUIRuntime.instances = env.__VenturaUIRuntime.instances or {}
@@ -135,6 +155,124 @@ local function _runtimeUntrackShutdown(fn)
 		end
 	end
 end
+
+local function _cancelManagedThread(thread)
+	if thread == nil then return false end
+	local current
+	pcall(function() current = coroutine.running() end)
+	if current ~= nil and thread == current then return false end
+	if task and type(task.cancel) == "function" then
+		local ok = pcall(task.cancel, thread)
+		if ok then return true end
+	end
+	local ok = pcall(function()
+		if coroutine.status(thread) ~= "dead" then coroutine.close(thread) end
+	end)
+	return ok
+end
+
+local function _disconnectManagedConnection(connection)
+	if connection == nil then return false end
+	return pcall(function()
+		if type(connection.Disconnect) == "function" then connection:Disconnect() end
+	end)
+end
+
+local function _destroyManagedInstance(instance)
+	if instance == nil then return false end
+	return pcall(function()
+		if instance.Destroy and instance.Parent then instance:Destroy() end
+	end)
+end
+
+local function _runGlobalUICleanup(reason, preserveWindow)
+	reason = tostring(reason or "global-ui-cleanup")
+	if _globalUIRoot.cleaning == true then
+		return _globalUIRoot.lastCleanupReport or {
+			ok = false,
+			reentrant = true,
+			reason = reason,
+		}
+	end
+
+	_globalUIRoot.cleaning = true
+	local report = {
+		ok = true,
+		reason = reason,
+		windowStopped = false,
+		connectionsDisconnected = 0,
+		threadsCancelled = 0,
+		instancesDestroyed = 0,
+		cleanupsRun = 0,
+		errors = {},
+		startedAt = os.clock(),
+	}
+
+	local activeWindow = _globalUIRoot.activeWindow
+	if activeWindow and activeWindow ~= preserveWindow then
+		local closeMethod = activeWindow.HardClose or activeWindow.DestroyImmediate or activeWindow.Destroy
+		if type(closeMethod) == "function" then
+			local ok, err = pcall(closeMethod, activeWindow, reason)
+			report.windowStopped = ok
+			if not ok then table.insert(report.errors, "window: " .. tostring(err)) end
+		end
+	end
+
+	for name, item in pairs(_globalUIRoot.cleanups or {}) do
+		local callback = type(item) == "table" and item.callback or item
+		if type(callback) == "function" then
+			local ok, err = pcall(callback, reason)
+			if ok then
+				report.cleanupsRun = report.cleanupsRun + 1
+			else
+				table.insert(report.errors, "cleanup " .. tostring(name) .. ": " .. tostring(err))
+			end
+		end
+		_globalUIRoot.cleanups[name] = nil
+	end
+
+	for key, connection in pairs(_globalUIRoot.connections or {}) do
+		if _disconnectManagedConnection(connection) then
+			report.connectionsDisconnected = report.connectionsDisconnected + 1
+		end
+		_globalUIRoot.connections[key] = nil
+	end
+
+	for key, thread in pairs(_globalUIRoot.threads or {}) do
+		if _cancelManagedThread(thread) then
+			report.threadsCancelled = report.threadsCancelled + 1
+		end
+		_globalUIRoot.threads[key] = nil
+	end
+
+	for key, instance in pairs(_globalUIRoot.instances or {}) do
+		if _destroyManagedInstance(instance) then
+			report.instancesDestroyed = report.instancesDestroyed + 1
+		end
+		_globalUIRoot.instances[key] = nil
+	end
+
+	if _globalUIRoot.activeWindow ~= preserveWindow then
+		_globalUIRoot.activeWindow = nil
+		_globalUIRoot.activeScreenGui = nil
+		_globalUIRoot.activeOwner = nil
+	end
+
+	_globalUIRoot.generation = (tonumber(_globalUIRoot.generation) or 0) + 1
+	_globalUIRoot.lastCleanupReason = reason
+	report.finishedAt = os.clock()
+	report.elapsedMs = (report.finishedAt - report.startedAt) * 1000
+	report.ok = #report.errors == 0
+	_globalUIRoot.lastCleanupReport = report
+	_globalUIRoot.cleaning = false
+	return report
+end
+
+-- Shared aliases allow other hubs/loaders to stop the currently active UI.
+_sharedEnv.__CrimsonCleanupCurrentUI = _runGlobalUICleanup
+_sharedEnv.__CrimsonHubCleanup = _runGlobalUICleanup
+_sharedEnv.__MenuXDGlobalCleanup = _runGlobalUICleanup
+_sharedEnv.CurrentHubCleanup = _runGlobalUICleanup
 
 local function _safeEnumKey(key, fallback)
 	if typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode and key ~= Enum.KeyCode.Unknown then
@@ -346,9 +484,69 @@ local function destroyExistingVenturaGUI()
 	end
 end
 
-function Library:UnloadAll()
+function Library:UnloadAll(reason)
+	local report = _runGlobalUICleanup(reason or "Library:UnloadAll")
 	destroyExistingVenturaGUI()
-	return true
+	return report
+end
+
+function Library:StopCurrentUI(reason)
+	return _runGlobalUICleanup(reason or "Library:StopCurrentUI")
+end
+Library.CleanupCurrentUI = Library.StopCurrentUI
+Library.StopPreviousHub = Library.StopCurrentUI
+
+function Library:GetGlobalCleanupReport()
+	return _globalUIRoot.lastCleanupReport
+end
+
+function Library:GetGlobalUIRuntime()
+	return {
+		generation = tonumber(_globalUIRoot.generation) or 0,
+		activeOwner = _globalUIRoot.activeOwner,
+		activeWindow = _globalUIRoot.activeWindow,
+		activeScreenGui = _globalUIRoot.activeScreenGui,
+		connections = _globalUIRoot.connections,
+		instances = _globalUIRoot.instances,
+		threads = _globalUIRoot.threads,
+		cleanups = _globalUIRoot.cleanups,
+		lastCleanupReason = _globalUIRoot.lastCleanupReason,
+		lastCleanupReport = _globalUIRoot.lastCleanupReport,
+	}
+end
+
+function Library:RegisterGlobalCleanup(callback, label)
+	if type(callback) ~= "function" then return nil end
+	local key = tostring(label or ("cleanup_" .. tostring(os.clock())))
+	_globalUIRoot.cleanups[key] = {callback = callback, label = key}
+	return function()
+		_globalUIRoot.cleanups[key] = nil
+	end
+end
+
+function Library:TrackGlobalConnection(connection, label)
+	if connection == nil then return connection end
+	local key = tostring(label or ("connection_" .. tostring(os.clock())))
+	_globalUIRoot.connections[key] = connection
+	return connection
+end
+
+function Library:TrackGlobalInstance(instance, label)
+	if instance == nil then return instance end
+	local key = tostring(label or ("instance_" .. tostring(os.clock())))
+	_globalUIRoot.instances[key] = instance
+	return instance
+end
+
+function Library:TrackGlobalThread(thread, label)
+	if thread == nil then return thread end
+	local key = tostring(label or ("thread_" .. tostring(os.clock())))
+	_globalUIRoot.threads[key] = thread
+	return thread
+end
+
+function Library:RunBeforeOtherUI(reason)
+	return _runGlobalUICleanup(reason or "before-other-ui")
 end
 
 function Library:GetRuntimeCounts()
@@ -363,6 +561,10 @@ function Library:GetRuntimeCounts()
 		connections = aliveConnections,
 		instances = aliveInstances,
 		shutdowns = #(_runtimeRoot.shutdowns or {}),
+		globalOwner = _globalUIRoot.activeOwner,
+		globalGeneration = tonumber(_globalUIRoot.generation) or 0,
+		globalThreads = (function() local n=0 for _ in pairs(_globalUIRoot.threads or {}) do n=n+1 end return n end)(),
+		globalConnections = (function() local n=0 for _ in pairs(_globalUIRoot.connections or {}) do n=n+1 end return n end)(),
 	}
 end
 
@@ -2266,6 +2468,11 @@ function Library:new(options)
 		strictCompatibility = false,
 		controlErrorIsolation = true, -- one failed component will not stop the rest of the UI
 		cleanupVerification = true,
+		globalUICleanup = true, -- register this window as the globally active hub
+		stopOnForeignUI = true, -- stop MenuXD when another likely third-party ScreenGui appears
+		foreignUIWatchDelay = 1.5,
+		foreignUIProbeDelay = 0.30,
+		foreignUIWatchPlayerGui = false, -- disabled by default to avoid game UI false positives
 		configLastGood = true,
 		configChecksums = true,
 		minimalMode = false, -- disables decorative/background work while preserving controls
@@ -2508,7 +2715,7 @@ function Library:new(options)
 		return UDim2.new(0, x, 0, y)
 	end
 
-	local GUI = {CurrentTab=nil, _tabs={}, _open=true, _accentObjects={}, _themeObjects={}, _themeListeners={}, _keybindWidgets={}, _activeKeybind=nil, _configControls={}, _controls={}, _toggleControls={}, _reconnectControls={}, _reconnectCallbacks={}, _loadedConfigData=nil, _configApplying=false, _destroyCallbacks={}, _cleanupCallbacks={}, _trackedProperties={}, _trackedHumanoidProperties={}, _trackedInstances={}, _ownerBuckets={}, _callbackStats={}, _callbackActive={}, _callbackHistory={}, _configMigrations={}, _values={}, _lastCallbackFailure=nil, _controlBuildErrors={}, _cleanupReports={}, _compatibilityReport=_compatibilityReport, _minimalMode=(options.minimalMode == true), _activityStopped=false, _closing=false, _reconnectEnabled=(options.reconnectOnRespawn == true), _reconnectDelay=tonumber(options.reconnectDelay) or 0.85, _respawnToken=0}
+	local GUI = {CurrentTab=nil, _tabs={}, _open=true, _accentObjects={}, _themeObjects={}, _themeListeners={}, _keybindWidgets={}, _activeKeybind=nil, _configControls={}, _controls={}, _toggleControls={}, _reconnectControls={}, _reconnectCallbacks={}, _loadedConfigData=nil, _configApplying=false, _destroyCallbacks={}, _cleanupCallbacks={}, _trackedProperties={}, _trackedHumanoidProperties={}, _trackedInstances={}, _trackedThreads={}, _ownerBuckets={}, _callbackStats={}, _callbackActive={}, _callbackHistory={}, _configMigrations={}, _values={}, _lastCallbackFailure=nil, _controlBuildErrors={}, _cleanupReports={}, _compatibilityReport=_compatibilityReport, _minimalMode=(options.minimalMode == true), _activityStopped=false, _closing=false, _reconnectEnabled=(options.reconnectOnRespawn == true), _reconnectDelay=tonumber(options.reconnectDelay) or 0.85, _respawnToken=0}
 
 	-- v5.77 Safe / Slow Load ----------------------------------------------------
 	-- Heavy theme/settings pages can be built in small chunks. This keeps the UI
@@ -6506,16 +6713,21 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		keybindListening = false
 		-- v5.78: stop safe UI tasks immediately when the window closes/re-executes.
 		if GUI._tasks then
-			for _, taskInfo in pairs(GUI._tasks) do
+			for name, taskInfo in pairs(GUI._tasks) do
 				if taskInfo then
-					taskInfo.Running = false
-					taskInfo.Stopped = true
-					if type(taskInfo.Cleanup) == "function" and not taskInfo._cleanupRan then
-						taskInfo._cleanupRan = true
-						pcall(taskInfo.Cleanup, taskInfo)
+					if type(GUI._StopTaskObject) == "function" then
+						pcall(function() GUI:_StopTaskObject(taskInfo, "window-cleanup") end)
+					else
+						taskInfo.Running = false
+						taskInfo.Stopped = true
 					end
 				end
+				GUI._tasks[name] = nil
 			end
+		end
+		for i = #GUI._trackedThreads, 1, -1 do
+			_cancelManagedThread(GUI._trackedThreads[i])
+			GUI._trackedThreads[i] = nil
 		end
 		if GUI._activeKeybind and GUI._activeKeybind._stopListening then
 			pcall(function() GUI._activeKeybind:_stopListening(true) end)
@@ -6539,6 +6751,13 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		pcall(function() if _ttFrame then _ttFrame.Visible = false end end)
 	end
 
+	local function _releaseGlobalUIOwnership()
+		if _globalUIRoot.activeWindow == GUI then
+			_globalUIRoot.activeWindow = nil
+			_globalUIRoot.activeScreenGui = nil
+			_globalUIRoot.activeOwner = nil
+		end
+	end
 
 	GUI._runtimeShutdown = _runtimeTrackShutdown(function(reason)
 		if _destroyed then return end
@@ -6549,6 +6768,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		end
 		GUI._closing = true
 		_stopAllActivity()
+		_releaseGlobalUIOwnership()
 		_destroyed = true
 		pcall(function()
 			if V.minimizeBubble then V.minimizeBubble:Destroy() end
@@ -6599,6 +6819,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		GUI._closing = true
 		GUI._open = false
 		_stopAllActivity()
+		_releaseGlobalUIOwnership()
 		_runtimeUntrackShutdown(GUI._runtimeShutdown)
 		_destroyed=true; keybindListening=false
 		for _, fn in ipairs(GUI._destroyCallbacks or {}) do
@@ -6955,6 +7176,22 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		if conn and type(conn.Disconnect) == "function" then track(conn) end
 		return conn
 	end
+	function GUI:TrackThread(thread, label)
+		if thread == nil then return thread end
+		table.insert(GUI._trackedThreads, thread)
+		if options.globalUICleanup ~= false then
+			Library:TrackGlobalThread(thread, tostring(label or ("window-thread-" .. tostring(#GUI._trackedThreads))))
+		end
+		return thread
+	end
+	function GUI:SpawnManaged(name, callback, ...)
+		if type(callback) ~= "function" then return nil end
+		local packed = table.pack(...)
+		return GUI:Task(name, function(token, taskInfo)
+			return callback(token, taskInfo, table.unpack(packed, 1, packed.n))
+		end)
+	end
+	GUI.TrackTaskThread = GUI.TrackThread
 	function GUI:StopActivity() _stopAllActivity() end
 	function GUI:StopAll() _stopAllActivity() end
 	function GUI:IsClosing() return GUI._closing == true or _destroyed == true end
@@ -6968,6 +7205,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		GUI._closing = true
 		GUI._open = false
 		_stopAllActivity()
+		_releaseGlobalUIOwnership()
 		for _, c in ipairs(_connections) do
 			pcall(function()
 				if c and type(c.Disconnect) == "function" then c:Disconnect() end
@@ -13984,6 +14222,10 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			taskInfo._cleanupRan = true
 			pcall(taskInfo.Cleanup, taskInfo.Token, taskInfo)
 		end
+		if taskInfo.Thread then
+			_cancelManagedThread(taskInfo.Thread)
+			taskInfo.Thread = nil
+		end
 		return true
 	end
 
@@ -14123,6 +14365,110 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		pcall(function() GUI:SetMinimalMode(true) end)
 	end
 
+
+	local _foreignUIWatchConnections = {}
+	local _foreignUIWatchEnabled = options.stopOnForeignUI ~= false
+
+	local _foreignUIIgnore = {
+		robloxgui=true,
+		robloxpromptgui=true,
+		devconsolemaster=true,
+		purchaseprompt=true,
+		networkpause=true,
+		touchgui=true,
+		chat=true,
+		bubblechat=true,
+		capturemode=true,
+		emotesmenu=true,
+		freecam=true,
+		voicechat=true,
+		themeprovider=true,
+		topbarapp=true,
+	}
+
+	local function _stopForeignUIWatch()
+		for i = #_foreignUIWatchConnections, 1, -1 do
+			local connection = _foreignUIWatchConnections[i]
+			pcall(function()
+				if connection and type(connection.Disconnect) == "function" then connection:Disconnect() end
+			end)
+			_foreignUIWatchConnections[i] = nil
+		end
+	end
+
+	local function _isLikelyForeignUI(candidate)
+		if not candidate or candidate == SG or not candidate:IsA("ScreenGui") then return false end
+		if candidate:GetAttribute("MenuXDIgnoreGlobalCleanup") == true then return false end
+		local name = tostring(candidate.Name or ""):lower()
+		if name == "venturaui" or name:find("venturaui_staging", 1, true) == 1 then return false end
+		if _foreignUIIgnore[name] then return false end
+		for ignored in pairs(_foreignUIIgnore) do
+			if name:find(ignored, 1, true) == 1 then return false end
+		end
+		local parent = candidate.Parent
+		local playerGui = LP and LP:FindFirstChildOfClass("PlayerGui")
+		if parent == playerGui and options.foreignUIWatchPlayerGui ~= true then return false end
+		return true
+	end
+
+	local function _probeForeignUI(candidate)
+		if not _foreignUIWatchEnabled or _destroyed or GUI._activityStopped then return end
+		if not _isLikelyForeignUI(candidate) then return end
+		local delaySeconds = math.clamp(tonumber(options.foreignUIProbeDelay) or 0.30, 0, 2)
+		task.delay(delaySeconds, function()
+			if not _foreignUIWatchEnabled or _destroyed or GUI._activityStopped then return end
+			if not _isLikelyForeignUI(candidate) or not candidate.Parent or candidate.Enabled == false then return end
+			local hasVisual = false
+			pcall(function()
+				hasVisual = candidate:FindFirstChildWhichIsA("GuiObject", true) ~= nil
+			end)
+			if not hasVisual then return end
+			_runGlobalUICleanup("foreign-ui-detected:" .. tostring(candidate.Name), candidate)
+		end)
+	end
+
+	local function _startForeignUIWatch()
+		_stopForeignUIWatch()
+		if not _foreignUIWatchEnabled or options.globalUICleanup == false then return false end
+		local containers = {}
+		local seen = {}
+		local function add(container)
+			if container and not seen[container] then
+				seen[container] = true
+				table.insert(containers, container)
+			end
+		end
+		pcall(function()
+			if type(gethui) == "function" then add(gethui()) end
+		end)
+		pcall(function() add(CoreGui) end)
+		if options.foreignUIWatchPlayerGui == true then
+			pcall(function() add(LP and LP:FindFirstChildOfClass("PlayerGui")) end)
+		end
+
+		for _, container in ipairs(containers) do
+			local connection = container.ChildAdded:Connect(_probeForeignUI)
+			table.insert(_foreignUIWatchConnections, connection)
+			track(connection)
+		end
+		return #_foreignUIWatchConnections > 0
+	end
+
+	function GUI:SetStopOnForeignUI(state)
+		_foreignUIWatchEnabled = state ~= false
+		if _foreignUIWatchEnabled then _startForeignUIWatch() else _stopForeignUIWatch() end
+		return _foreignUIWatchEnabled
+	end
+	function GUI:GetStopOnForeignUI()
+		return _foreignUIWatchEnabled == true
+	end
+	function GUI:StopForAnotherUI(reason)
+		return _runGlobalUICleanup(reason or "GUI:StopForAnotherUI")
+	end
+	function GUI:GetGlobalCleanupReport()
+		return _globalUIRoot.lastCleanupReport
+	end
+
 	local function _commitWindowBuild()
 		if _atomicStaging then
 			local transferOK, transferResult, transferError = pcall(function()
@@ -14164,10 +14510,25 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		_runtimeRoot.respawnCharacter = nil
 		_runtimeRoot.respawnGuardUntil = 0
 		_runtimeRoot.respawnReuseCredits = 0
+
+		if options.globalUICleanup ~= false then
+			if _globalUIRoot.activeWindow and _globalUIRoot.activeWindow ~= GUI then
+				_runGlobalUICleanup("replaced-by-menuxd", GUI)
+			end
+			_globalUIRoot.activeWindow = GUI
+			_globalUIRoot.activeScreenGui = SG
+			_globalUIRoot.activeOwner = Library.Product .. ":" .. Library.BuildId
+			_globalUIRoot.generation = (tonumber(_globalUIRoot.generation) or 0) + 1
+		end
 		return true
 	end
 
 	_commitWindowBuild()
+	if options.stopOnForeignUI ~= false and options.globalUICleanup ~= false then
+		task.delay(math.clamp(tonumber(options.foreignUIWatchDelay) or 1.5, 0, 10), function()
+			if not _destroyed and GUI._activityStopped ~= true then _startForeignUIWatch() end
+		end)
+	end
 	return GUI
 end -- Library:new
 
@@ -14445,7 +14806,7 @@ function Library:RunReexecuteTest(options)
 end
 
 function Library:SelfTest()
-	local stabilityFeatures = {"build-fingerprint","cache-diagnostics","compatibility-report","safe-create-fallback","control-error-isolation","cleanup-verification","config-checksum","config-last-good","atomic-hot-reload","state-transfer","owned-cleanup","single-input-dispatcher","callback-recovery","control-registry","reactive-values","lazy-builders","cancellation-tokens","minimal-mode","performance-mode","normalized-position","reexecute-self-test"}
+	local stabilityFeatures = {"build-fingerprint","cache-diagnostics","compatibility-report","safe-create-fallback","control-error-isolation","cleanup-verification","config-checksum","config-last-good","atomic-hot-reload","state-transfer","owned-cleanup","single-input-dispatcher","callback-recovery","control-registry","reactive-values","lazy-builders","cancellation-tokens","minimal-mode","performance-mode","normalized-position","reexecute-self-test","global-ui-cleanup","foreign-ui-watcher","tracked-thread-cancellation"}
 	local guiParentName = "unknown"
 	pcall(function()
 		local parent = getScreenGuiParent()
