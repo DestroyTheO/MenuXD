@@ -18,11 +18,11 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.99.1-same-library-cleanup"
+Library.Version = "5.99.2-money-data-components"
 Library.Product = "MenuXD"
-Library.BuildId = "5.99.1.2.20260718.6259f2776e"
-Library.BuildTimestamp = "2026-07-19T02:01:55.808131Z"
-Library.SourceHash = "6259f2776e9fd1b88893622e3c3a9e34e89e1eeba602b7dc1d589e8d2563af39"
+Library.BuildId = "5.99.2.20260719.dd62b07786"
+Library.BuildTimestamp = "2026-07-19T19:42:54.226670Z"
+Library.SourceHash = "dd62b07786db48a59fd4c05b779dbb4d25f08c379949a34f43dc5dbba463650b"
 Library.SourceHashMode = "normalized-sha256"
 Library.ReleaseChannel = "stable"
 
@@ -3534,6 +3534,9 @@ function Library:new(options)
 				"ActionRow","Alert","Badge","Button","ButtonGrid","CardGroup","Chip","CodeBlock","CollapsibleGroup","CollapsibleSection",
 				"ColorPicker","Columns","ControlGroup","ControlHint","CopyButton","Divider","Dropdown","Group","Groupbox","Hyperlink","Image",
 				"Info","KeyValue","Keybind","Label","LogConsole","MiniStat","MultiDropdown","NumberDisplay","Paragraph","ProgressBar",
+				"MoneyDisplay","BalanceDisplay","CashDisplay","CurrencyDisplay","ProfitDisplay","Profit","TransactionList","Transactions",
+				"StatGrid","StatsGrid","SessionStats","GoalProgress","MoneyGoal","Goal","Counter","NumberInput","PercentageDisplay",
+				"PercentDisplay","TimerDisplay","Stopwatch","Countdown","ActivityLog","SessionLog","MiniChart","Chart","Sparkline",
 				"SearchBox","SearchDropdown","Section","Segmented","Separator","Slider","Spacer","StatusCard","Stepper","Success","TextInput",
 				"Toggle","ToggleButton","Warning"
 			}
@@ -9777,6 +9780,564 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		Tab.TotalDisplay = Tab.NumberDisplay
 		Tab.Total = Tab.NumberDisplay
 
+
+		-- ══════════════════════════════════════════════════════════════════════
+		-- MONEY & DATA COMPONENT PACK
+		-- Added as a separate closure so the working v5.99.1 controls, dropdowns,
+		-- layout, and same-library cleanup behavior remain unchanged.
+		-- ══════════════════════════════════════════════════════════════════════
+		;(function()
+			local POSITIVE = Color3.fromRGB(80, 220, 135)
+			local NEGATIVE = Color3.fromRGB(255, 88, 105)
+			local WARNING = Color3.fromRGB(255, 195, 85)
+			local NEUTRAL = Library.Theme.TextSecondary
+
+			local function commaNumber(text)
+				local sign, whole, fraction = tostring(text):match('^([%-]?)(%d+)(.*)$')
+				if not whole then return tostring(text) end
+				local reversed = whole:reverse():gsub('(%d%d%d)', '%1,')
+				return (sign or '') .. reversed:reverse():gsub('^,', '') .. (fraction or '')
+			end
+
+			local function compactNumber(value, decimals)
+				local absolute = math.abs(value)
+				local divisor, suffix = 1, ''
+				if absolute >= 1e12 then divisor, suffix = 1e12, 'T'
+				elseif absolute >= 1e9 then divisor, suffix = 1e9, 'B'
+				elseif absolute >= 1e6 then divisor, suffix = 1e6, 'M'
+				elseif absolute >= 1e3 then divisor, suffix = 1e3, 'K' end
+				if divisor == 1 then return nil end
+				local places = math.clamp(math.floor(tonumber(decimals) or 1), 0, 3)
+				local result = string.format('%.' .. places .. 'f', value / divisor)
+				result = result:gsub('(%..-)0+$', '%1'):gsub('%.$', '')
+				return result .. suffix
+			end
+
+			local function formatNumeric(value, config)
+				config = config or {}
+				if type(config.formatter) == 'function' then
+					local ok, result = pcall(config.formatter, value)
+					if ok and result ~= nil then return tostring(result) end
+				end
+				local number = tonumber(value)
+				if number == nil then return tostring(value == nil and (config.placeholder or '—') or value) end
+				local decimals = math.clamp(math.floor(tonumber(config.decimals) or 0), 0, 8)
+				local result = config.compact and compactNumber(number, decimals) or nil
+				if not result then result = string.format('%.' .. decimals .. 'f', number) end
+				if config.commas ~= false and not config.compact then result = commaNumber(result) end
+				return tostring(config.prefix or '') .. result .. tostring(config.suffix or '')
+			end
+
+			local function formatClock(seconds, showHours, showMilliseconds)
+				seconds = math.max(0, tonumber(seconds) or 0)
+				local whole = math.floor(seconds)
+				local hours = math.floor(whole / 3600)
+				local minutes = math.floor((whole % 3600) / 60)
+				local secs = whole % 60
+				local baseText
+				if showHours == true or hours > 0 then
+					baseText = string.format('%02d:%02d:%02d', hours, minutes, secs)
+				else
+					baseText = string.format('%02d:%02d', minutes, secs)
+				end
+				if showMilliseconds == true then
+					baseText = baseText .. string.format('.%01d', math.floor((seconds - whole) * 10))
+				end
+				return baseText
+			end
+
+			function Tab:MoneyDisplay(opts)
+				opts = validate({
+					name='Balance', description='', tooltip='', value=0, default=nil,
+					currency='$', suffix='', decimals=0, commas=true, compact=false,
+					animate=true, animationTime=0.30, showChange=true, changeDuration=1.4,
+					positiveColor=POSITIVE, negativeColor=NEGATIVE, neutralColor=nil,
+					icon='💵', formatter=nil, callback=function() end, valueObject=nil,
+				}, opts)
+				local initial = tonumber(opts.default ~= nil and opts.default or opts.value) or 0
+				local Money = {Value=initial, Default=initial}
+				local hasDesc = tostring(opts.description or '') ~= ''
+				Money.frame = base('MoneyDisplay', hasDesc and 74 or 64)
+				pad(Money.frame, 0, 10, 0, 12)
+				local title, desc = labelPair(Money.frame, opts.name, opts.description, 190, hasDesc and 10 or 15)
+				title.Text = (tostring(opts.icon or '') ~= '' and tostring(opts.icon) .. '  ' or '') .. tostring(opts.name)
+
+				local valueLabel = lbl(Money.frame, '', 18, opts.neutralColor or Library.Theme.Accent, FONT_MONO_BOLD, Enum.TextXAlignment.Right)
+				valueLabel.Name = 'MoneyValue'
+				valueLabel.AnchorPoint = Vector2.new(1, 0)
+				valueLabel.Position = UDim2.new(1, 0, 0, hasDesc and 10 or 13)
+				valueLabel.Size = UDim2.new(0, 184, 0, 24)
+				valueLabel.TextTruncate = Enum.TextTruncate.AtEnd
+				if not opts.neutralColor then regAccent(valueLabel, 'TextColor3') end
+
+				local changeLabel = lbl(Money.frame, '', 11, POSITIVE, FONT_MONO_BOLD, Enum.TextXAlignment.Right)
+				changeLabel.Name = 'MoneyChange'
+				changeLabel.AnchorPoint = Vector2.new(1, 0)
+				changeLabel.Position = UDim2.new(1, 0, 0, hasDesc and 39 or 38)
+				changeLabel.Size = UDim2.new(0, 184, 0, 16)
+				changeLabel.TextTransparency = 1
+
+				local driver = Instance.new('NumberValue', Money.frame)
+				driver.Name = 'MoneyAnimationValue'
+				driver.Value = initial
+				local activeTween = nil
+				local changeSerial = 0
+
+				local function displayValue(value)
+					valueLabel.Text = formatNumeric(value, {
+						prefix=opts.currency, suffix=opts.suffix, decimals=opts.decimals,
+						commas=opts.commas, compact=opts.compact, formatter=opts.formatter,
+					})
+				end
+
+				local function showChange(delta)
+					if opts.showChange == false or delta == 0 then return end
+					changeSerial = changeSerial + 1
+					local serial = changeSerial
+					local prefix = delta > 0 and '+' or ''
+					changeLabel.Text = prefix .. formatNumeric(delta, {
+						prefix=opts.currency, suffix=opts.suffix, decimals=opts.decimals,
+						commas=opts.commas, compact=opts.compact,
+					})
+					changeLabel.TextColor3 = delta > 0 and opts.positiveColor or opts.negativeColor
+					changeLabel.TextTransparency = 0
+					task.delay(math.max(0.2, tonumber(opts.changeDuration) or 1.4), function()
+						if serial == changeSerial and changeLabel.Parent then
+							tw(changeLabel, {TextTransparency=1}, TI_FAST)
+						end
+					end)
+				end
+
+				function Money:Set(value, silent)
+					local target = tonumber(value) or 0
+					local previous = tonumber(Money.Value) or 0
+					Money.Value = target
+					if activeTween then pcall(function() activeTween:Cancel() end) end
+					if opts.animate ~= false and math.abs(target - previous) > 0 then
+						driver.Value = previous
+						activeTween = TweenService:Create(driver, TweenInfo.new(math.max(0.05, tonumber(opts.animationTime) or 0.30), Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Value=target})
+						activeTween:Play()
+					else
+						driver.Value = target
+						displayValue(target)
+					end
+					showChange(target - previous)
+					if not silent then GUI:_invokeCallback(tostring(opts.name or 'MoneyDisplay'), opts.callback, target, target - previous, Money) end
+					return Money
+				end
+				function Money:Get() return Money.Value end
+				function Money:Add(amount, silent) return Money:Set((tonumber(Money.Value) or 0) + (tonumber(amount) or 0), silent) end
+				function Money:Subtract(amount, silent) return Money:Set((tonumber(Money.Value) or 0) - (tonumber(amount) or 0), silent) end
+				function Money:Reset(silent) return Money:Set(Money.Default, silent) end
+				function Money:SetCurrency(currency) opts.currency=tostring(currency or ''); displayValue(Money.Value); return Money end
+				function Money:SetSuffix(suffix) opts.suffix=tostring(suffix or ''); displayValue(Money.Value); return Money end
+				function Money:SetCompact(state) opts.compact=state==true; displayValue(Money.Value); return Money end
+				function Money:SetDecimals(value) opts.decimals=math.max(0, math.floor(tonumber(value) or 0)); displayValue(Money.Value); return Money end
+				function Money:SetFormatter(formatter) opts.formatter=formatter; displayValue(Money.Value); return Money end
+				function Money:SetColor(color) if typeof(color)=='Color3' then valueLabel.TextColor3=color end; return Money end
+				function Money:Flash(kind)
+					local color = kind=='negative' and opts.negativeColor or kind=='warning' and WARNING or opts.positiveColor
+					local original = valueLabel.TextColor3
+					valueLabel.TextColor3 = color
+					task.delay(0.28, function() if valueLabel.Parent then valueLabel.TextColor3=original end end)
+					return Money
+				end
+
+				local control = _universalControl(Money, opts)
+				control:Own(driver:GetPropertyChangedSignal('Value'):Connect(function() displayValue(driver.Value) end))
+				control:Own(function() if activeTween then pcall(function() activeTween:Cancel() end) end end)
+				addTooltip(Money.frame, opts.tooltip)
+				displayValue(initial)
+				if type(opts.valueObject)=='table' and type(opts.valueObject.Bind)=='function' then
+					control:Own(opts.valueObject:Bind(function(value) Money:Set(value, true) end, true))
+				end
+				return control
+			end
+
+			function Tab:ProfitDisplay(opts)
+				opts = validate({
+					name='Session Profit', description='', tooltip='', startingValue=0, currentValue=0,
+					currency='$', decimals=0, commas=true, compact=false, showPercentage=true,
+					positiveColor=POSITIVE, negativeColor=NEGATIVE, neutralColor=NEUTRAL,
+				}, opts)
+				local Profit = {Starting=tonumber(opts.startingValue) or 0, Current=tonumber(opts.currentValue) or 0}
+				Profit.frame = base('ProfitDisplay', 86)
+				pad(Profit.frame, 0, 10, 0, 12)
+				local title = lbl(Profit.frame, tostring(opts.name), 13, Library.Theme.TextPrimary, FONT_UI_BOLD)
+				title.Name='ControlTitle'; title.Size=UDim2.new(1,-190,0,18); title.Position=UDim2.new(0,0,0,7)
+				local startLabel = lbl(Profit.frame, '', 10, Library.Theme.TextSecondary, FONT_MONO)
+				startLabel.Position=UDim2.new(0,0,0,29); startLabel.Size=UDim2.new(1,-190,0,16)
+				local currentLabel = lbl(Profit.frame, '', 10, Library.Theme.TextSecondary, FONT_MONO)
+				currentLabel.Position=UDim2.new(0,0,0,49); currentLabel.Size=UDim2.new(1,-190,0,16)
+				local profitLabel = lbl(Profit.frame, '', 18, POSITIVE, FONT_MONO_BOLD, Enum.TextXAlignment.Right)
+				profitLabel.AnchorPoint=Vector2.new(1,0); profitLabel.Position=UDim2.new(1,0,0,14); profitLabel.Size=UDim2.new(0,180,0,26)
+				local percentLabel = lbl(Profit.frame, '', 11, POSITIVE, FONT_MONO_BOLD, Enum.TextXAlignment.Right)
+				percentLabel.AnchorPoint=Vector2.new(1,0); percentLabel.Position=UDim2.new(1,0,0,45); percentLabel.Size=UDim2.new(0,180,0,18)
+
+				local function currency(value)
+					return formatNumeric(value, {prefix=opts.currency, decimals=opts.decimals, commas=opts.commas, compact=opts.compact})
+				end
+				local function render()
+					local delta = Profit.Current - Profit.Starting
+					local percentage = Profit.Starting ~= 0 and (delta / math.abs(Profit.Starting)) * 100 or (delta == 0 and 0 or 100)
+					local color = delta > 0 and opts.positiveColor or delta < 0 and opts.negativeColor or opts.neutralColor
+					startLabel.Text = 'Start  ' .. currency(Profit.Starting)
+					currentLabel.Text = 'Now    ' .. currency(Profit.Current)
+					profitLabel.Text = (delta > 0 and '+' or '') .. currency(delta)
+					profitLabel.TextColor3 = color
+					percentLabel.Text = opts.showPercentage ~= false and string.format('%+.2f%%', percentage) or ''
+					percentLabel.TextColor3 = color
+				end
+				function Profit:SetCurrent(value) Profit.Current=tonumber(value) or 0; render(); return Profit end
+				function Profit:SetStarting(value) Profit.Starting=tonumber(value) or 0; render(); return Profit end
+				function Profit:Add(amount) return Profit:SetCurrent(Profit.Current + (tonumber(amount) or 0)) end
+				function Profit:Subtract(amount) return Profit:SetCurrent(Profit.Current - (tonumber(amount) or 0)) end
+				function Profit:Get() return Profit.Current end
+				function Profit:GetProfit() return Profit.Current - Profit.Starting end
+				function Profit:GetPercentage()
+					local delta=Profit:GetProfit()
+					return Profit.Starting ~= 0 and (delta / math.abs(Profit.Starting)) * 100 or (delta == 0 and 0 or 100)
+				end
+				function Profit:Reset(value) Profit.Starting=tonumber(value) or Profit.Current; Profit.Current=Profit.Starting; render(); return Profit end
+				addTooltip(Profit.frame, opts.tooltip)
+				render()
+				return _universalControl(Profit, opts)
+			end
+
+			function Tab:TransactionList(opts)
+				opts = validate({
+					name='Recent Transactions', tooltip='', height=190, maxEntries=8, currency='$',
+					decimals=0, commas=true, compact=false, showTimestamp=true,
+					incomeColor=POSITIVE, expenseColor=NEGATIVE, neutralColor=NEUTRAL,
+				}, opts)
+				local Transactions = {Entries={}, MaxEntries=math.max(1, math.floor(tonumber(opts.maxEntries) or 8)), _nextId=0}
+				Transactions.frame = base('TransactionList', math.max(110, tonumber(opts.height) or 190) + 34)
+				pad(Transactions.frame, 0, 9, 8, 10)
+				local title = lbl(Transactions.frame, tostring(opts.name), 13, Library.Theme.TextPrimary, FONT_UI_BOLD)
+				title.Name='ControlTitle'; title.Size=UDim2.new(1,0,0,24); title.Position=UDim2.new(0,0,0,4)
+				local scroll = Instance.new('ScrollingFrame', Transactions.frame)
+				scroll.Name='TransactionScroll'; scroll.BackgroundColor3=Library.Theme.Background; scroll.BorderSizePixel=0
+				scroll.Position=UDim2.new(0,0,0,32); scroll.Size=UDim2.new(1,0,1,-38)
+				scroll.ScrollBarThickness=2; scroll.ScrollBarImageColor3=Library.Theme.BorderHover
+				scroll.CanvasSize=UDim2.new(0,0,0,0); corner(scroll,7); stroke(scroll,Library.Theme.Border); pad(scroll,6,6,6,6)
+				local layout = Instance.new('UIListLayout', scroll)
+				layout.Padding=UDim.new(0,4); layout.SortOrder=Enum.SortOrder.LayoutOrder
+				layout:GetPropertyChangedSignal('AbsoluteContentSize'):Connect(function()
+					scroll.CanvasSize=UDim2.new(0,0,0,layout.AbsoluteContentSize.Y+12)
+				end)
+
+				local function amountText(amount)
+					return formatNumeric(amount, {prefix=opts.currency, decimals=opts.decimals, commas=opts.commas, compact=opts.compact})
+				end
+				local function destroyEntry(entry)
+					if entry and entry.Frame then pcall(function() entry.Frame:Destroy() end) end
+				end
+				function Transactions:Add(data, amount, kind)
+					if type(data) ~= 'table' then data={title=tostring(data or 'Transaction'), amount=amount, type=kind} end
+					Transactions._nextId = Transactions._nextId + 1
+					local numeric = tonumber(data.amount) or 0
+					local entryKind = tostring(data.type or data.kind or (numeric > 0 and 'income' or numeric < 0 and 'expense' or 'neutral')):lower()
+					local color = entryKind=='income' and opts.incomeColor or entryKind=='expense' and opts.expenseColor or opts.neutralColor
+					local row = Instance.new('Frame', scroll)
+					row.Name='TransactionEntry'; row.BackgroundColor3=Library.Theme.Surface; row.BorderSizePixel=0; row.Size=UDim2.new(1,-4,0,42); corner(row,6)
+					local accent=Instance.new('Frame',row); accent.BackgroundColor3=color; accent.BorderSizePixel=0; accent.Size=UDim2.new(0,3,1,-12); accent.Position=UDim2.new(0,5,0,6); corner(accent,3)
+					local name=lbl(row,tostring(data.title or data.name or 'Transaction'),12,Library.Theme.TextPrimary,FONT_UI_BOLD)
+					name.Position=UDim2.new(0,16,0,5); name.Size=UDim2.new(1,-145,0,17); name.TextTruncate=Enum.TextTruncate.AtEnd
+					local detailText=tostring(data.description or data.detail or '')
+					if detailText=='' and opts.showTimestamp~=false then detailText=tostring(data.time or os.date('%H:%M:%S')) end
+					local detail=lbl(row,detailText,10,Library.Theme.TextSecondary,FONT_UI)
+					detail.Position=UDim2.new(0,16,0,23); detail.Size=UDim2.new(1,-145,0,14); detail.TextTruncate=Enum.TextTruncate.AtEnd
+					local value=lbl(row,(numeric>0 and '+' or '')..amountText(numeric),12,color,FONT_MONO_BOLD,Enum.TextXAlignment.Right)
+					value.AnchorPoint=Vector2.new(1,0.5); value.Position=UDim2.new(1,-8,0.5,0); value.Size=UDim2.new(0,120,0,20); value.TextTruncate=Enum.TextTruncate.AtEnd
+					local entry={Id=data.id or Transactions._nextId,Title=data.title or data.name or 'Transaction',Amount=numeric,Type=entryKind,Time=data.time or os.time(),Description=detailText,Frame=row}
+					table.insert(Transactions.Entries, entry)
+					while #Transactions.Entries > Transactions.MaxEntries do destroyEntry(table.remove(Transactions.Entries,1)) end
+					return entry
+				end
+				function Transactions:Remove(id)
+					for index,entry in ipairs(Transactions.Entries) do
+						if entry==id or entry.Id==id then destroyEntry(entry); table.remove(Transactions.Entries,index); return true end
+					end
+					return false
+				end
+				function Transactions:Clear() for _,entry in ipairs(Transactions.Entries) do destroyEntry(entry) end; Transactions.Entries={}; return Transactions end
+				function Transactions:Get() return Transactions.Entries end
+				function Transactions:GetEntries() return Transactions.Entries end
+				function Transactions:SetMaxEntries(value)
+					Transactions.MaxEntries=math.max(1,math.floor(tonumber(value) or Transactions.MaxEntries))
+					while #Transactions.Entries > Transactions.MaxEntries do destroyEntry(table.remove(Transactions.Entries,1)) end
+					return Transactions
+				end
+				function Transactions:SetCurrency(value) opts.currency=tostring(value or ''); return Transactions end
+				addTooltip(Transactions.frame, opts.tooltip)
+				return _universalControl(Transactions, opts)
+			end
+
+			function Tab:StatGrid(opts)
+				opts = validate({name='', tooltip='', columns=3, stats={}, cardHeight=64, gap=6}, opts)
+				local Grid={Items={}, Order={}}
+				local columns=math.clamp(math.floor(tonumber(opts.columns) or 3),1,4)
+				local gap=math.max(0,tonumber(opts.gap) or 6)
+				local headerHeight=tostring(opts.name or '')~='' and 27 or 0
+				Grid.frame=Instance.new('Frame',Tab._scroll); Grid.frame.Name='StatGrid'; Grid.frame.BackgroundTransparency=1; Grid.frame.BorderSizePixel=0; Grid.frame.Size=UDim2.new(1,0,0,headerHeight+64)
+				if headerHeight>0 then
+					local title=lbl(Grid.frame,tostring(opts.name),13,Library.Theme.TextPrimary,FONT_UI_BOLD)
+					title.Name='ControlTitle'; title.Size=UDim2.new(1,0,0,20)
+				end
+				local body=Instance.new('Frame',Grid.frame); body.BackgroundTransparency=1; body.BorderSizePixel=0; body.Position=UDim2.new(0,0,0,headerHeight); body.Size=UDim2.new(1,0,0,64)
+				local layout=Instance.new('UIGridLayout',body); layout.SortOrder=Enum.SortOrder.LayoutOrder; layout.CellPadding=UDim2.new(0,gap,0,gap); layout.CellSize=UDim2.new(1/columns,-math.ceil(gap*(columns-1)/columns),0,math.max(48,tonumber(opts.cardHeight) or 64))
+				local function resize()
+					task.defer(function()
+						if not Grid.frame.Parent then return end
+						body.Size=UDim2.new(1,0,0,layout.AbsoluteContentSize.Y)
+						Grid.frame.Size=UDim2.new(1,0,0,headerHeight+math.max(1,layout.AbsoluteContentSize.Y))
+					end)
+				end
+				layout:GetPropertyChangedSignal('AbsoluteContentSize'):Connect(resize)
+				local function makeCard(data)
+					local key=tostring(data.id or data.name or data.title or ('Stat'..tostring(#Grid.Order+1)))
+					if Grid.Items[key] then return Grid.Items[key] end
+					local card=Instance.new('Frame',body); card.Name='StatCard'; card.BackgroundColor3=Library.Theme.Surface; card.BorderSizePixel=0; corner(card,7); stroke(card,Library.Theme.Border)
+					local icon=lbl(card,tostring(data.icon or ''),15,data.color or Library.Theme.Accent,FONT_UI_BOLD); icon.Position=UDim2.new(0,10,0,7); icon.Size=UDim2.new(0,24,0,20)
+					local title=lbl(card,tostring(data.name or data.title or key),10,Library.Theme.TextSecondary,FONT_UI); title.Position=UDim2.new(0,(data.icon and data.icon~='') and 34 or 10,0,7); title.Size=UDim2.new(1,-44,0,18); title.TextTruncate=Enum.TextTruncate.AtEnd
+					local value=lbl(card,tostring(data.value or 0),16,data.color or Library.Theme.TextPrimary,FONT_MONO_BOLD); value.Position=UDim2.new(0,10,0,29); value.Size=UDim2.new(1,-20,0,24); value.TextTruncate=Enum.TextTruncate.AtEnd
+					local item={Key=key,Value=data.value or 0,Frame=card,ValueLabel=value,TitleLabel=title,IconLabel=icon}
+					Grid.Items[key]=item; table.insert(Grid.Order,key); resize(); return item
+				end
+				function Grid:AddStat(data) return makeCard(type(data)=='table' and data or {name=tostring(data)}) end
+				function Grid:Set(key,value)
+					key=tostring(key); local item=Grid.Items[key] or makeCard({name=key,value=value}); item.Value=value; item.ValueLabel.Text=tostring(value); return Grid
+				end
+				function Grid:Add(key,amount) local item=Grid.Items[tostring(key)] or makeCard({name=tostring(key),value=0}); return Grid:Set(key,(tonumber(item.Value) or 0)+(tonumber(amount) or 0)) end
+				function Grid:Get(key) local item=Grid.Items[tostring(key or '')]; return key==nil and Grid.Items or item and item.Value end
+				function Grid:Remove(key)
+					key=tostring(key); local item=Grid.Items[key]; if not item then return false end
+					pcall(function() item.Frame:Destroy() end); Grid.Items[key]=nil
+					for i,name in ipairs(Grid.Order) do if name==key then table.remove(Grid.Order,i); break end end
+					resize(); return true
+				end
+				function Grid:Clear() for key in pairs(Grid.Items) do Grid:Remove(key) end; return Grid end
+				for _,data in ipairs(opts.stats or {}) do makeCard(data) end
+				addTooltip(Grid.frame,opts.tooltip); resize(); return _universalControl(Grid,opts)
+			end
+
+			function Tab:GoalProgress(opts)
+				opts=validate({name='Goal',description='',tooltip='',current=0,target=100,prefix='',suffix='',decimals=0,showPercent=true,allowOverflow=false,color=nil,completeColor=POSITIVE,callback=function() end},opts)
+				local Goal={Current=tonumber(opts.current) or 0,Target=math.max(0.000001,tonumber(opts.target) or 100),DefaultCurrent=tonumber(opts.current) or 0}
+				Goal.frame=base('GoalProgress',72); pad(Goal.frame,0,9,8,10)
+				local title=lbl(Goal.frame,tostring(opts.name),13,Library.Theme.TextPrimary,FONT_UI_BOLD); title.Name='ControlTitle'; title.Size=UDim2.new(1,-170,0,18); title.Position=UDim2.new(0,0,0,5)
+				local value=lbl(Goal.frame,'',11,Library.Theme.TextSecondary,FONT_MONO_BOLD,Enum.TextXAlignment.Right); value.AnchorPoint=Vector2.new(1,0); value.Position=UDim2.new(1,0,0,5); value.Size=UDim2.new(0,165,0,18)
+				local description=lbl(Goal.frame,tostring(opts.description or ''),10,Library.Theme.TextSecondary,FONT_UI); description.Position=UDim2.new(0,0,0,25); description.Size=UDim2.new(1,0,0,14); description.Visible=tostring(opts.description or '')~=''
+				local track=Instance.new('Frame',Goal.frame); track.BackgroundColor3=Library.Theme.Background; track.BorderSizePixel=0; track.Position=UDim2.new(0,0,1,-16); track.Size=UDim2.new(1,0,0,9); corner(track,5); stroke(track,Library.Theme.Border)
+				local fill=Instance.new('Frame',track); fill.BackgroundColor3=opts.color or Library.Theme.Accent; fill.BorderSizePixel=0; fill.Size=UDim2.new(0,0,1,0); corner(fill,5); if not opts.color then regAccent(fill) end
+				local function render(silent)
+					local ratio=Goal.Target>0 and Goal.Current/Goal.Target or 0; local visual=opts.allowOverflow and math.max(0,ratio) or math.clamp(ratio,0,1)
+					tw(fill,{Size=UDim2.new(math.clamp(visual,0,1),0,1,0)},TI_FAST)
+					fill.BackgroundColor3=ratio>=1 and opts.completeColor or (opts.color or Library.Theme.Accent)
+					local current=formatNumeric(Goal.Current,{prefix=opts.prefix,suffix=opts.suffix,decimals=opts.decimals,commas=true})
+					local target=formatNumeric(Goal.Target,{prefix=opts.prefix,suffix=opts.suffix,decimals=opts.decimals,commas=true})
+					value.Text=current..' / '..target..(opts.showPercent~=false and string.format('  %.0f%%',ratio*100) or '')
+					if not silent then GUI:_invokeCallback(tostring(opts.name or 'GoalProgress'),opts.callback,Goal.Current,Goal.Target,ratio,Goal) end
+				end
+				function Goal:Set(v,silent) Goal.Current=tonumber(v) or 0; render(silent); return Goal end
+				function Goal:Add(v,silent) return Goal:Set(Goal.Current+(tonumber(v) or 0),silent) end
+				function Goal:Subtract(v,silent) return Goal:Set(Goal.Current-(tonumber(v) or 0),silent) end
+				function Goal:SetTarget(v,silent) Goal.Target=math.max(0.000001,tonumber(v) or Goal.Target); render(silent); return Goal end
+				function Goal:Get() return Goal.Current end
+				function Goal:GetTarget() return Goal.Target end
+				function Goal:GetPercentage() return Goal.Target>0 and Goal.Current/Goal.Target*100 or 0 end
+				function Goal:IsComplete() return Goal.Current>=Goal.Target end
+				function Goal:Reset(silent) return Goal:Set(Goal.DefaultCurrent,silent) end
+				addTooltip(Goal.frame,opts.tooltip); render(true); return _universalControl(Goal,opts)
+			end
+
+			function Tab:Counter(opts)
+				opts=validate({name='Counter',description='',tooltip='',default=0,min=-math.huge,max=math.huge,step=1,decimals=0,prefix='',suffix='',callback=function() end,disabled=false},opts)
+				local Counter={Value=tonumber(opts.default) or 0,Disabled=opts.disabled==true}
+				local hasDesc=tostring(opts.description or '')~=''; Counter.frame=base('Counter',hasDesc and 62 or 50); pad(Counter.frame,0,8,0,10)
+				labelPair(Counter.frame,opts.name,opts.description,190,hasDesc and 10 or 16)
+				local minus=Instance.new('TextButton',Counter.frame); minus.Text='−'; minus.TextSize=18; minus.FontFace=FONT_UI_BOLD; minus.TextColor3=Library.Theme.TextPrimary; minus.BackgroundColor3=Library.Theme.Background; minus.BorderSizePixel=0; minus.AutoButtonColor=false; minus.AnchorPoint=Vector2.new(1,0.5); minus.Position=UDim2.new(1,-126,0.5,0); minus.Size=UDim2.new(0,32,0,30); corner(minus,6); stroke(minus,Library.Theme.Border)
+				local value=lbl(Counter.frame,'',14,Library.Theme.Accent,FONT_MONO_BOLD,Enum.TextXAlignment.Center); value.AnchorPoint=Vector2.new(1,0.5); value.Position=UDim2.new(1,-38,0.5,0); value.Size=UDim2.new(0,82,0,30); value.BackgroundColor3=Library.Theme.Background; value.BackgroundTransparency=0; corner(value,6); stroke(value,Library.Theme.Border); regAccent(value,'TextColor3')
+				local plus=Instance.new('TextButton',Counter.frame); plus.Text='+'; plus.TextSize=18; plus.FontFace=FONT_UI_BOLD; plus.TextColor3=Library.Theme.TextPrimary; plus.BackgroundColor3=Library.Theme.Background; plus.BorderSizePixel=0; plus.AutoButtonColor=false; plus.AnchorPoint=Vector2.new(1,0.5); plus.Position=UDim2.new(1,0,0.5,0); plus.Size=UDim2.new(0,32,0,30); corner(plus,6); stroke(plus,Library.Theme.Border)
+				local function normalize(v)
+					v=math.clamp(tonumber(v) or 0,tonumber(opts.min) or -math.huge,tonumber(opts.max) or math.huge)
+					local step=math.abs(tonumber(opts.step) or 1); if step>0 then v=math.floor(v/step+0.5)*step end
+					return v
+				end
+				local function render() value.Text=formatNumeric(Counter.Value,{prefix=opts.prefix,suffix=opts.suffix,decimals=opts.decimals,commas=true}) end
+				function Counter:Set(v,silent) Counter.Value=normalize(v); render(); if not silent then GUI:_invokeCallback(tostring(opts.name or 'Counter'),opts.callback,Counter.Value,Counter) end; return Counter end
+				function Counter:Get() return Counter.Value end
+				function Counter:Add(v,silent) return Counter:Set(Counter.Value+(tonumber(v) or tonumber(opts.step) or 1),silent) end
+				function Counter:Subtract(v,silent) return Counter:Set(Counter.Value-(tonumber(v) or tonumber(opts.step) or 1),silent) end
+				function Counter:Increment() return Counter:Add(opts.step) end
+				function Counter:Decrement() return Counter:Subtract(opts.step) end
+				function Counter:SetDisabled(state) Counter.Disabled=state==true; minus.Active=not Counter.Disabled; plus.Active=not Counter.Disabled; return Counter end
+				minus.MouseButton1Click:Connect(function() if not Counter.Disabled then Counter:Decrement() end end); plus.MouseButton1Click:Connect(function() if not Counter.Disabled then Counter:Increment() end end)
+				_registerConfigControl(Counter,opts,'numberinput'); addTooltip(Counter.frame,opts.tooltip); render(); return _universalControl(Counter,opts)
+			end
+
+			function Tab:NumberInput(opts)
+				opts=validate({name='Number',description='',tooltip='',default=0,min=-math.huge,max=math.huge,step=1,decimals=0,prefix='',suffix='',callback=function() end,disabled=false},opts)
+				local Input={Value=tonumber(opts.default) or 0,Disabled=opts.disabled==true}
+				local hasDesc=tostring(opts.description or '')~=''; Input.frame=base('NumberInput',hasDesc and 62 or 50); pad(Input.frame,0,8,0,10)
+				labelPair(Input.frame,opts.name,opts.description,205,hasDesc and 10 or 16)
+				local box=Instance.new('TextBox',Input.frame); box.Name='NumberInputBox'; box.BackgroundColor3=Library.Theme.Background; box.BorderSizePixel=0; box.ClearTextOnFocus=false; box.TextColor3=Library.Theme.TextPrimary; box.PlaceholderColor3=Library.Theme.TextDisabled; box.FontFace=FONT_MONO_BOLD; box.TextSize=12; box.TextXAlignment=Enum.TextXAlignment.Center; box.AnchorPoint=Vector2.new(1,0.5); box.Position=UDim2.new(1,-72,0.5,0); box.Size=UDim2.new(0,124,0,30); corner(box,6); stroke(box,Library.Theme.Border)
+				local down=Instance.new('TextButton',Input.frame); down.Text='−'; down.TextSize=16; down.FontFace=FONT_UI_BOLD; down.TextColor3=Library.Theme.TextPrimary; down.BackgroundColor3=Library.Theme.Background; down.BorderSizePixel=0; down.AnchorPoint=Vector2.new(1,0.5); down.Position=UDim2.new(1,-38,0.5,0); down.Size=UDim2.new(0,30,0,30); corner(down,6); stroke(down,Library.Theme.Border)
+				local up=Instance.new('TextButton',Input.frame); up.Text='+'; up.TextSize=16; up.FontFace=FONT_UI_BOLD; up.TextColor3=Library.Theme.TextPrimary; up.BackgroundColor3=Library.Theme.Background; up.BorderSizePixel=0; up.AnchorPoint=Vector2.new(1,0.5); up.Position=UDim2.new(1,0,0.5,0); up.Size=UDim2.new(0,30,0,30); corner(up,6); stroke(up,Library.Theme.Border)
+				local function normalize(v)
+					v=math.clamp(tonumber(v) or Input.Value or 0,tonumber(opts.min) or -math.huge,tonumber(opts.max) or math.huge)
+					local step=math.abs(tonumber(opts.step) or 0); if step>0 then v=math.floor(v/step+0.5)*step end
+					local places=math.max(0,math.floor(tonumber(opts.decimals) or 0)); local scale=10^places; return math.floor(v*scale+0.5)/scale
+				end
+				local function render() box.Text=formatNumeric(Input.Value,{prefix=opts.prefix,suffix=opts.suffix,decimals=opts.decimals,commas=false}) end
+				function Input:Set(v,silent) Input.Value=normalize(v); render(); if not silent then GUI:_invokeCallback(tostring(opts.name or 'NumberInput'),opts.callback,Input.Value,Input) end; return Input end
+				function Input:Get() return Input.Value end
+				function Input:Add(v,silent) return Input:Set(Input.Value+(tonumber(v) or tonumber(opts.step) or 1),silent) end
+				function Input:Subtract(v,silent) return Input:Set(Input.Value-(tonumber(v) or tonumber(opts.step) or 1),silent) end
+				function Input:SetDisabled(state) Input.Disabled=state==true; box.TextEditable=not Input.Disabled; down.Active=not Input.Disabled; up.Active=not Input.Disabled; return Input end
+				box.FocusLost:Connect(function() if not Input.Disabled then local raw=box.Text:gsub('[^%d%.%-]',''); Input:Set(tonumber(raw) or Input.Value) else render() end end)
+				down.MouseButton1Click:Connect(function() if not Input.Disabled then Input:Subtract(opts.step) end end); up.MouseButton1Click:Connect(function() if not Input.Disabled then Input:Add(opts.step) end end)
+				_registerConfigControl(Input,opts,'numberinput'); addTooltip(Input.frame,opts.tooltip); render(); return _universalControl(Input,opts)
+			end
+
+			function Tab:PercentageDisplay(opts)
+				opts=validate({name='Percentage',description='',tooltip='',value=0,decimals=0,color=nil,lowColor=NEGATIVE,midColor=WARNING,highColor=POSITIVE,callback=function() end},opts)
+				local Percent={Value=math.clamp(tonumber(opts.value) or 0,0,100)}
+				Percent.frame=base('PercentageDisplay',64); pad(Percent.frame,0,9,8,10)
+				local title=lbl(Percent.frame,tostring(opts.name),13,Library.Theme.TextPrimary,FONT_UI_BOLD); title.Name='ControlTitle'; title.Size=UDim2.new(1,-80,0,20); title.Position=UDim2.new(0,0,0,5)
+				local value=lbl(Percent.frame,'',16,Library.Theme.Accent,FONT_MONO_BOLD,Enum.TextXAlignment.Right); value.AnchorPoint=Vector2.new(1,0); value.Position=UDim2.new(1,0,0,4); value.Size=UDim2.new(0,80,0,23)
+				local track=Instance.new('Frame',Percent.frame); track.BackgroundColor3=Library.Theme.Background; track.BorderSizePixel=0; track.Position=UDim2.new(0,0,1,-15); track.Size=UDim2.new(1,0,0,9); corner(track,5); stroke(track,Library.Theme.Border)
+				local fill=Instance.new('Frame',track); fill.BorderSizePixel=0; fill.Size=UDim2.new(0,0,1,0); corner(fill,5)
+				local function colorFor(v) return opts.color or (v<35 and opts.lowColor or v<70 and opts.midColor or opts.highColor) end
+				local function render(silent) local color=colorFor(Percent.Value); value.Text=string.format('%.'..math.max(0,math.floor(tonumber(opts.decimals) or 0))..'f%%',Percent.Value); value.TextColor3=color; fill.BackgroundColor3=color; tw(fill,{Size=UDim2.new(Percent.Value/100,0,1,0)},TI_FAST); if not silent then GUI:_invokeCallback(tostring(opts.name or 'PercentageDisplay'),opts.callback,Percent.Value,Percent) end end
+				function Percent:Set(v,silent) Percent.Value=math.clamp(tonumber(v) or 0,0,100); render(silent); return Percent end
+				function Percent:Get() return Percent.Value end
+				function Percent:Add(v,silent) return Percent:Set(Percent.Value+(tonumber(v) or 0),silent) end
+				function Percent:Subtract(v,silent) return Percent:Set(Percent.Value-(tonumber(v) or 0),silent) end
+				_registerConfigControl(Percent,opts,'numberinput'); addTooltip(Percent.frame,opts.tooltip); render(true); return _universalControl(Percent,opts)
+			end
+
+			function Tab:TimerDisplay(opts)
+				opts=validate({name='Timer',description='',tooltip='',mode='stopwatch',duration=60,value=nil,autoStart=false,showHours=false,showMilliseconds=false,callback=function() end,onComplete=function() end},opts)
+				local mode=tostring(opts.mode or 'stopwatch'):lower(); if mode~='countdown' then mode='stopwatch' end
+				local initial=tonumber(opts.value); if initial==nil then initial=mode=='countdown' and (tonumber(opts.duration) or 60) or 0 end
+				local Timer={Value=math.max(0,initial),Initial=math.max(0,initial),Mode=mode,Running=false}
+				Timer.frame=base('TimerDisplay',64); pad(Timer.frame,0,9,8,10)
+				local title=lbl(Timer.frame,tostring(opts.name),13,Library.Theme.TextPrimary,FONT_UI_BOLD); title.Name='ControlTitle'; title.Position=UDim2.new(0,0,0,6); title.Size=UDim2.new(1,-160,0,18)
+				local status=lbl(Timer.frame,'Paused',10,Library.Theme.TextSecondary,FONT_UI); status.Position=UDim2.new(0,0,0,29); status.Size=UDim2.new(1,-160,0,16)
+				local value=lbl(Timer.frame,'',20,Library.Theme.Accent,FONT_MONO_BOLD,Enum.TextXAlignment.Right); value.AnchorPoint=Vector2.new(1,0.5); value.Position=UDim2.new(1,0,0.5,0); value.Size=UDim2.new(0,155,0,28); regAccent(value,'TextColor3')
+				local taskName='TimerDisplay_'..tostring(os.clock()):gsub('%.','_')
+				local function render() value.Text=formatClock(Timer.Value,opts.showHours,opts.showMilliseconds); status.Text=Timer.Running and 'Running' or (Timer.Value==0 and mode=='countdown' and 'Complete' or 'Paused') end
+				function Timer:Set(v,silent) Timer.Value=math.max(0,tonumber(v) or 0); render(); if not silent then GUI:_invokeCallback(tostring(opts.name or 'TimerDisplay'),opts.callback,Timer.Value,Timer) end; return Timer end
+				function Timer:Get() return Timer.Value end
+				function Timer:IsRunning() return Timer.Running==true end
+				function Timer:Start()
+					if Timer.Running then return Timer end
+					if mode=='countdown' and Timer.Value<=0 then Timer.Value=Timer.Initial end
+					Timer.Running=true; render()
+					GUI:Task(taskName,function(token)
+						local last=os.clock()
+						while token:Alive() and Timer.Running do
+							token:Wait(0.05); local now=os.clock(); local delta=now-last; last=now
+							if mode=='countdown' then Timer.Value=math.max(0,Timer.Value-delta) else Timer.Value=Timer.Value+delta end
+							render(); GUI:_invokeCallback(tostring(opts.name or 'TimerDisplay'),opts.callback,Timer.Value,Timer)
+							if mode=='countdown' and Timer.Value<=0 then Timer.Running=false; render(); GUI:_invokeCallback(tostring(opts.name or 'TimerDisplay')..':complete',opts.onComplete,Timer); break end
+						end
+					end)
+					return Timer
+				end
+				function Timer:Pause() Timer.Running=false; GUI:StopTask(taskName,'timer-paused'); render(); return Timer end
+				function Timer:Stop() Timer:Pause(); Timer.Value=mode=='countdown' and Timer.Initial or 0; render(); return Timer end
+				function Timer:Reset() return Timer:Stop() end
+				function Timer:Add(seconds) return Timer:Set(Timer.Value+(tonumber(seconds) or 0)) end
+				function Timer:Subtract(seconds) return Timer:Set(math.max(0,Timer.Value-(tonumber(seconds) or 0))) end
+				function Timer:SetDuration(seconds) Timer.Initial=math.max(0,tonumber(seconds) or Timer.Initial); if mode=='countdown' and not Timer.Running then Timer.Value=Timer.Initial; render() end; return Timer end
+				local control=_universalControl(Timer,opts); control:Own(function() Timer.Running=false; GUI:StopTask(taskName,'timer-destroyed') end); addTooltip(Timer.frame,opts.tooltip); render(); if opts.autoStart==true then task.defer(function() if Timer.frame.Parent then Timer:Start() end end) end; return control
+			end
+
+			function Tab:ActivityLog(opts)
+				opts=validate({name='Activity Log',tooltip='',height=190,maxEntries=50,timestamp=true},opts)
+				local Log={Entries={},MaxEntries=math.max(1,math.floor(tonumber(opts.maxEntries) or 50))}
+				Log.frame=base('ActivityLog',math.max(100,tonumber(opts.height) or 190)+34); pad(Log.frame,0,9,8,10)
+				local title=lbl(Log.frame,tostring(opts.name),13,Library.Theme.TextPrimary,FONT_UI_BOLD); title.Name='ControlTitle'; title.Position=UDim2.new(0,0,0,4); title.Size=UDim2.new(1,0,0,24)
+				local scroll=Instance.new('ScrollingFrame',Log.frame); scroll.BackgroundColor3=Library.Theme.Background; scroll.BorderSizePixel=0; scroll.Position=UDim2.new(0,0,0,32); scroll.Size=UDim2.new(1,0,1,-38); scroll.ScrollBarThickness=2; scroll.ScrollBarImageColor3=Library.Theme.BorderHover; scroll.CanvasSize=UDim2.new(0,0,0,0); corner(scroll,7); stroke(scroll,Library.Theme.Border); pad(scroll,6,6,6,6)
+				local layout=Instance.new('UIListLayout',scroll); layout.Padding=UDim.new(0,3); layout.SortOrder=Enum.SortOrder.LayoutOrder; layout:GetPropertyChangedSignal('AbsoluteContentSize'):Connect(function() scroll.CanvasSize=UDim2.new(0,0,0,layout.AbsoluteContentSize.Y+12); scroll.CanvasPosition=Vector2.new(0,math.max(0,layout.AbsoluteContentSize.Y)) end)
+				local styles={info={icon='ℹ️',color=Library.Theme.TextSecondary},success={icon='✅',color=POSITIVE},warning={icon='⚠️',color=WARNING},error={icon='❌',color=NEGATIVE},money={icon='💵',color=POSITIVE}}
+				local function destroy(entry) if entry and entry.Frame then pcall(function() entry.Frame:Destroy() end) end end
+				function Log:Add(message,kind,data)
+					kind=tostring(kind or 'info'):lower(); local style=styles[kind] or styles.info; local entryData=type(data)=='table' and data or {}
+					local row=Instance.new('Frame',scroll); row.BackgroundColor3=Library.Theme.Surface; row.BorderSizePixel=0; row.Size=UDim2.new(1,-4,0,34); corner(row,5)
+					local icon=lbl(row,tostring(entryData.icon or style.icon),12,style.color,FONT_UI_BOLD,Enum.TextXAlignment.Center); icon.Position=UDim2.new(0,5,0,7); icon.Size=UDim2.new(0,24,0,20)
+					local text=lbl(row,tostring(message or ''),11,Library.Theme.TextPrimary,FONT_UI); text.Position=UDim2.new(0,32,0,3); text.Size=UDim2.new(1,-118,0,28); text.TextTruncate=Enum.TextTruncate.AtEnd
+					local time=lbl(row,opts.timestamp~=false and tostring(entryData.time or os.date('%H:%M:%S')) or '',9,Library.Theme.TextDisabled,FONT_MONO,Enum.TextXAlignment.Right); time.AnchorPoint=Vector2.new(1,0.5); time.Position=UDim2.new(1,-7,0.5,0); time.Size=UDim2.new(0,78,0,18)
+					local entry={Message=tostring(message or ''),Kind=kind,Time=entryData.time or os.time(),Frame=row,Data=entryData}; table.insert(Log.Entries,entry); while #Log.Entries>Log.MaxEntries do destroy(table.remove(Log.Entries,1)) end; return entry
+				end
+				function Log:Info(message,data) return Log:Add(message,'info',data) end
+				function Log:Success(message,data) return Log:Add(message,'success',data) end
+				function Log:Warning(message,data) return Log:Add(message,'warning',data) end
+				function Log:Error(message,data) return Log:Add(message,'error',data) end
+				function Log:Money(message,data) return Log:Add(message,'money',data) end
+				function Log:Clear() for _,entry in ipairs(Log.Entries) do destroy(entry) end; Log.Entries={}; return Log end
+				function Log:Get() return Log.Entries end
+				function Log:GetEntries() return Log.Entries end
+				addTooltip(Log.frame,opts.tooltip); return _universalControl(Log,opts)
+			end
+
+			function Tab:MiniChart(opts)
+				opts=validate({name='Recent Values',tooltip='',data={},height=120,maxPoints=20,color=nil,showRange=true,decimals=0,prefix='',suffix='',callback=function() end},opts)
+				local Chart={Data={},MaxPoints=math.clamp(math.floor(tonumber(opts.maxPoints) or 20),2,60),Bars={}}
+				for _,value in ipairs(opts.data or {}) do table.insert(Chart.Data,tonumber(value) or 0) end
+				while #Chart.Data>Chart.MaxPoints do table.remove(Chart.Data,1) end
+				Chart.frame=base('MiniChart',math.max(90,tonumber(opts.height) or 120)); pad(Chart.frame,0,8,8,10)
+				local title=lbl(Chart.frame,tostring(opts.name),13,Library.Theme.TextPrimary,FONT_UI_BOLD); title.Name='ControlTitle'; title.Size=UDim2.new(1,-150,0,20); title.Position=UDim2.new(0,0,0,3)
+				local current=lbl(Chart.frame,'—',12,Library.Theme.Accent,FONT_MONO_BOLD,Enum.TextXAlignment.Right); current.AnchorPoint=Vector2.new(1,0); current.Position=UDim2.new(1,0,0,3); current.Size=UDim2.new(0,145,0,20); if not opts.color then regAccent(current,'TextColor3') else current.TextColor3=opts.color end
+				local plot=Instance.new('Frame',Chart.frame); plot.Name='MiniChartPlot'; plot.BackgroundColor3=Library.Theme.Background; plot.BorderSizePixel=0; plot.Position=UDim2.new(0,0,0,29); plot.Size=UDim2.new(1,0,1,-35); plot.ClipsDescendants=true; corner(plot,6); stroke(plot,Library.Theme.Border)
+				local range=lbl(plot,'',9,Library.Theme.TextDisabled,FONT_MONO); range.Position=UDim2.new(0,6,0,3); range.Size=UDim2.new(1,-12,0,14); range.ZIndex=3
+				local function clearBars() for _,bar in ipairs(Chart.Bars) do pcall(function() bar:Destroy() end) end; Chart.Bars={} end
+				local function render()
+					task.defer(function()
+						if not plot.Parent then return end; clearBars()
+						if #Chart.Data==0 then current.Text='—'; range.Text='No data'; return end
+						local minimum,maximum=Chart.Data[1],Chart.Data[1]
+						for _,number in ipairs(Chart.Data) do minimum=math.min(minimum,number); maximum=math.max(maximum,number) end
+						local spread=math.max(0.000001,maximum-minimum); local count=#Chart.Data; local width=math.max(2,(plot.AbsoluteSize.X-12)/math.max(count,1)-2)
+						for index,number in ipairs(Chart.Data) do
+							local ratio=(number-minimum)/spread; if maximum==minimum then ratio=0.55 end
+							local bar=Instance.new('Frame',plot); bar.Name='ChartBar'; bar.BackgroundColor3=opts.color or Library.Theme.Accent; bar.BorderSizePixel=0; bar.AnchorPoint=Vector2.new(0,1); bar.Position=UDim2.new(0,6+(index-1)*(width+2),1,-6); bar.Size=UDim2.new(0,width,math.clamp(ratio,0.08,1),-22); bar.ZIndex=2; corner(bar,2); if not opts.color then regAccent(bar) end; table.insert(Chart.Bars,bar)
+						end
+						current.Text=formatNumeric(Chart.Data[#Chart.Data],{prefix=opts.prefix,suffix=opts.suffix,decimals=opts.decimals,commas=true})
+						range.Text=opts.showRange~=false and ('Min '..formatNumeric(minimum,{prefix=opts.prefix,suffix=opts.suffix,decimals=opts.decimals,commas=true})..'   Max '..formatNumeric(maximum,{prefix=opts.prefix,suffix=opts.suffix,decimals=opts.decimals,commas=true})) or ''
+					end)
+				end
+				function Chart:Push(value,silent) table.insert(Chart.Data,tonumber(value) or 0); while #Chart.Data>Chart.MaxPoints do table.remove(Chart.Data,1) end; render(); if not silent then GUI:_invokeCallback(tostring(opts.name or 'MiniChart'),opts.callback,Chart.Data[#Chart.Data],Chart) end; return Chart end
+				function Chart:Add(value,silent) return Chart:Push(value,silent) end
+				function Chart:SetData(data,silent) Chart.Data={}; for _,value in ipairs(type(data)=='table' and data or {}) do table.insert(Chart.Data,tonumber(value) or 0) end; while #Chart.Data>Chart.MaxPoints do table.remove(Chart.Data,1) end; render(); if not silent then GUI:_invokeCallback(tostring(opts.name or 'MiniChart'),opts.callback,Chart.Data[#Chart.Data],Chart) end; return Chart end
+				function Chart:Set(data,silent) return Chart:SetData(type(data)=='table' and data or {data},silent) end
+				function Chart:Get() return Chart.Data end
+				function Chart:GetData() return Chart.Data end
+				function Chart:Clear() Chart.Data={}; clearBars(); render(); return Chart end
+				function Chart:SetMaxPoints(value) Chart.MaxPoints=math.clamp(math.floor(tonumber(value) or Chart.MaxPoints),2,60); while #Chart.Data>Chart.MaxPoints do table.remove(Chart.Data,1) end; render(); return Chart end
+				local control=_universalControl(Chart,opts); control:Own(plot:GetPropertyChangedSignal('AbsoluteSize'):Connect(render)); addTooltip(Chart.frame,opts.tooltip); render(); return control
+			end
+
+			-- Friendly aliases.
+			function Tab:BalanceDisplay(opts) return Tab:MoneyDisplay(opts) end
+			function Tab:CashDisplay(opts) return Tab:MoneyDisplay(opts) end
+			function Tab:CurrencyDisplay(opts) return Tab:MoneyDisplay(opts) end
+			function Tab:Profit(opts) return Tab:ProfitDisplay(opts) end
+			function Tab:Transactions(opts) return Tab:TransactionList(opts) end
+			function Tab:StatsGrid(opts) return Tab:StatGrid(opts) end
+			function Tab:SessionStats(opts) return Tab:StatGrid(opts) end
+			function Tab:MoneyGoal(opts) return Tab:GoalProgress(opts) end
+			function Tab:Goal(opts) return Tab:GoalProgress(opts) end
+			function Tab:PercentDisplay(opts) return Tab:PercentageDisplay(opts) end
+			function Tab:Stopwatch(opts) opts=type(opts)=='table' and opts or {}; opts.mode='stopwatch'; return Tab:TimerDisplay(opts) end
+			function Tab:Countdown(opts) opts=type(opts)=='table' and opts or {}; opts.mode='countdown'; return Tab:TimerDisplay(opts) end
+			function Tab:SessionLog(opts) return Tab:ActivityLog(opts) end
+			function Tab:Chart(opts) return Tab:MiniChart(opts) end
+			function Tab:Sparkline(opts) return Tab:MiniChart(opts) end
+		end)()
+
 		-- ── ADVANCED LAYOUT HELPERS ─────────────────────────────────────────────
 		local function makeProxyParent(parent)
 			local Proxy = { _scroll = parent }
@@ -9785,7 +10346,11 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				"ProgressBar", "Button", "Toggle", "Slider", "Dropdown", "SearchDropdown",
 				"SearchableDropdown", "FilterDropdown", "TextInput", "ColorPicker", "Keybind",
 				"Warning", "Info", "Success", "Divider", "Chip", "ControlHint", "Hyperlink",
-				"StatusCard", "LogConsole", "NumberDisplay", "ValueDisplay", "PriceDisplay", "TotalDisplay", "Total"
+				"StatusCard", "LogConsole", "NumberDisplay", "ValueDisplay", "PriceDisplay", "TotalDisplay", "Total",
+				"MoneyDisplay", "BalanceDisplay", "CashDisplay", "CurrencyDisplay", "ProfitDisplay", "Profit",
+				"TransactionList", "Transactions", "StatGrid", "StatsGrid", "SessionStats", "GoalProgress", "MoneyGoal", "Goal",
+				"Counter", "NumberInput", "PercentageDisplay", "PercentDisplay", "TimerDisplay", "Stopwatch", "Countdown",
+				"ActivityLog", "SessionLog", "MiniChart", "Chart", "Sparkline"
 			}
 			local function callTabMethod(methodName, ...)
 				local fn = Tab[methodName]
