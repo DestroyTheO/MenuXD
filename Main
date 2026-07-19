@@ -18,11 +18,11 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.99.2-money-data-components"
+Library.Version = "5.99.2.1-alias-function-pack"
 Library.Product = "MenuXD"
-Library.BuildId = "5.99.2.20260719.dd62b07786"
-Library.BuildTimestamp = "2026-07-19T19:42:54.226670Z"
-Library.SourceHash = "dd62b07786db48a59fd4c05b779dbb4d25f08c379949a34f43dc5dbba463650b"
+Library.BuildId = "5.99.2.1.20260719.a874901929"
+Library.BuildTimestamp = "2026-07-19T19:51:59.325425Z"
+Library.SourceHash = "a874901929e909e1a264507c690d2d810dc50a9e4b9dcee93f4592fc3a46d3d0"
 Library.SourceHashMode = "normalized-sha256"
 Library.ReleaseChannel = "stable"
 
@@ -3540,6 +3540,9 @@ function Library:new(options)
 				"SearchBox","SearchDropdown","Section","Segmented","Separator","Slider","Spacer","StatusCard","Stepper","Success","TextInput",
 				"Toggle","ToggleButton","Warning"
 			}
+			for _, aliasName in ipairs(Library.ComponentAliasNames or {}) do
+				table.insert(componentBuilders, aliasName)
+			end
 			for _, methodName in ipairs(componentBuilders) do
 				local originalBuilder = Tab[methodName]
 				if type(originalBuilder) == "function" then
@@ -8056,6 +8059,20 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				GUI:ReleaseOwner(self._ownerKey, "control-destroy")
 				return nil
 			end
+			local universalAliases = {
+				GetValue="Get", SetValue="Set", Update="Set", Change="Set",
+				Remove="Destroy", Delete="Destroy", Dispose="Destroy", Unmount="Destroy",
+				Visible="Show", Lock="Disable", Unlock="Enable",
+				Rename="SetName", SetTitle="SetName", GetTitle="GetName",
+				SetText="SetName", GetText="GetName",
+				SetHint="SetDescription", GetHint="GetDescription",
+				OnChange="SetCallback", OnChanged="SetCallback", BindCallback="SetCallback",
+			}
+			for aliasName, targetName in pairs(universalAliases) do
+				if control[aliasName] == nil and type(control[targetName]) == "function" then
+					control[aliasName] = control[targetName]
+				end
+			end
 			return _registerUsabilityControl(control, opts)
 		end
 
@@ -10320,22 +10337,721 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				local control=_universalControl(Chart,opts); control:Own(plot:GetPropertyChangedSignal('AbsoluteSize'):Connect(render)); addTooltip(Chart.frame,opts.tooltip); render(); return control
 			end
 
-			-- Friendly aliases.
-			function Tab:BalanceDisplay(opts) return Tab:MoneyDisplay(opts) end
-			function Tab:CashDisplay(opts) return Tab:MoneyDisplay(opts) end
-			function Tab:CurrencyDisplay(opts) return Tab:MoneyDisplay(opts) end
-			function Tab:Profit(opts) return Tab:ProfitDisplay(opts) end
-			function Tab:Transactions(opts) return Tab:TransactionList(opts) end
-			function Tab:StatsGrid(opts) return Tab:StatGrid(opts) end
-			function Tab:SessionStats(opts) return Tab:StatGrid(opts) end
-			function Tab:MoneyGoal(opts) return Tab:GoalProgress(opts) end
-			function Tab:Goal(opts) return Tab:GoalProgress(opts) end
-			function Tab:PercentDisplay(opts) return Tab:PercentageDisplay(opts) end
-			function Tab:Stopwatch(opts) opts=type(opts)=='table' and opts or {}; opts.mode='stopwatch'; return Tab:TimerDisplay(opts) end
-			function Tab:Countdown(opts) opts=type(opts)=='table' and opts or {}; opts.mode='countdown'; return Tab:TimerDisplay(opts) end
-			function Tab:SessionLog(opts) return Tab:ActivityLog(opts) end
-			function Tab:Chart(opts) return Tab:MiniChart(opts) end
-			function Tab:Sparkline(opts) return Tab:MiniChart(opts) end
+			-- Broad constructor, option, and returned-method alias pack.
+			function Tab:Stopwatch(opts)
+				opts=type(opts)=='table' and opts or {}
+				opts.mode='stopwatch'
+				return Tab:TimerDisplay(opts)
+			end
+			function Tab:Countdown(opts)
+				opts=type(opts)=='table' and opts or {}
+				opts.mode='countdown'
+				return Tab:TimerDisplay(opts)
+			end
+
+			local constructorAliases = {
+				BalanceDisplay='MoneyDisplay',
+				CashDisplay='MoneyDisplay',
+				CurrencyDisplay='MoneyDisplay',
+				Money='MoneyDisplay',
+				Cash='MoneyDisplay',
+				Balance='MoneyDisplay',
+				Wallet='MoneyDisplay',
+				WalletDisplay='MoneyDisplay',
+				BankBalance='MoneyDisplay',
+				BankDisplay='MoneyDisplay',
+				AccountBalance='MoneyDisplay',
+				FundsDisplay='MoneyDisplay',
+				CurrencyValue='MoneyDisplay',
+				CoinDisplay='MoneyDisplay',
+				CoinsDisplay='MoneyDisplay',
+				GemDisplay='MoneyDisplay',
+				GemsDisplay='MoneyDisplay',
+				RobuxDisplay='MoneyDisplay',
+				CreditsDisplay='MoneyDisplay',
+				TokenDisplay='MoneyDisplay',
+				PointsDisplay='MoneyDisplay',
+				EarningsDisplay='MoneyDisplay',
+				RevenueDisplay='MoneyDisplay',
+				IncomeDisplay='MoneyDisplay',
+				Profit='ProfitDisplay',
+				ProfitTracker='ProfitDisplay',
+				ProfitCard='ProfitDisplay',
+				ProfitSummary='ProfitDisplay',
+				SessionProfit='ProfitDisplay',
+				NetProfit='ProfitDisplay',
+				NetProfitDisplay='ProfitDisplay',
+				GainLoss='ProfitDisplay',
+				GainLossDisplay='ProfitDisplay',
+				PnL='ProfitDisplay',
+				PnLDisplay='ProfitDisplay',
+				EarningsTracker='ProfitDisplay',
+				RevenueTracker='ProfitDisplay',
+				IncomeTracker='ProfitDisplay',
+				ROIDisplay='ProfitDisplay',
+				ReturnDisplay='ProfitDisplay',
+				Transactions='TransactionList',
+				TransactionHistory='TransactionList',
+				RecentTransactions='TransactionList',
+				TransactionLog='TransactionList',
+				Ledger='TransactionList',
+				LedgerList='TransactionList',
+				MoneyLog='TransactionList',
+				FinanceLog='TransactionList',
+				IncomeExpenseList='TransactionList',
+				PurchaseHistory='TransactionList',
+				SalesHistory='TransactionList',
+				PaymentHistory='TransactionList',
+				StatsGrid='StatGrid',
+				SessionStats='StatGrid',
+				Stats='StatGrid',
+				Statistics='StatGrid',
+				Metrics='StatGrid',
+				MetricGrid='StatGrid',
+				DataGrid='StatGrid',
+				DashboardStats='StatGrid',
+				SummaryStats='StatGrid',
+				StatCards='StatGrid',
+				MetricCards='StatGrid',
+				InfoGrid='StatGrid',
+				ValueGrid='StatGrid',
+				MoneyGoal='GoalProgress',
+				Goal='GoalProgress',
+				GoalTracker='GoalProgress',
+				GoalBar='GoalProgress',
+				GoalMeter='GoalProgress',
+				TargetProgress='GoalProgress',
+				TargetTracker='GoalProgress',
+				ObjectiveProgress='GoalProgress',
+				SavingsGoal='GoalProgress',
+				BudgetGoal='GoalProgress',
+				ProgressGoal='GoalProgress',
+				CompletionGoal='GoalProgress',
+				Count='Counter',
+				CountBox='Counter',
+				CountDisplay='Counter',
+				QuantityCounter='Counter',
+				AmountCounter='Counter',
+				ItemCounter='Counter',
+				StepCounter='Counter',
+				NumberCounter='Counter',
+				Incrementer='Counter',
+				NumericInput='NumberInput',
+				NumberBox='NumberInput',
+				NumericBox='NumberInput',
+				AmountInput='NumberInput',
+				QuantityInput='NumberInput',
+				ValueInput='NumberInput',
+				IntegerInput='NumberInput',
+				DecimalInput='NumberInput',
+				StepperInput='NumberInput',
+				PercentDisplay='PercentageDisplay',
+				Percent='PercentageDisplay',
+				Percentage='PercentageDisplay',
+				PercentValue='PercentageDisplay',
+				PercentageValue='PercentageDisplay',
+				RatioDisplay='PercentageDisplay',
+				CompletionDisplay='PercentageDisplay',
+				CompletionPercent='PercentageDisplay',
+				ProgressPercent='PercentageDisplay',
+				Timer='TimerDisplay',
+				ClockDisplay='TimerDisplay',
+				TimeDisplay='TimerDisplay',
+				SessionTimer='TimerDisplay',
+				ElapsedTimer='TimerDisplay',
+				ElapsedTime='TimerDisplay',
+				DurationDisplay='TimerDisplay',
+				TimeTracker='TimerDisplay',
+				Chronometer='Stopwatch',
+				CountdownTimer='Countdown',
+				SessionLog='ActivityLog',
+				Log='ActivityLog',
+				Logger='ActivityLog',
+				EventLog='ActivityLog',
+				ActionLog='ActivityLog',
+				HistoryLog='ActivityLog',
+				ActivityFeed='ActivityLog',
+				EventFeed='ActivityLog',
+				Feed='ActivityLog',
+				MessageLog='ActivityLog',
+				StatusLog='ActivityLog',
+				OutputLog='ActivityLog',
+				Chart='MiniChart',
+				Sparkline='MiniChart',
+				Graph='MiniChart',
+				MiniGraph='MiniChart',
+				TrendChart='MiniChart',
+				ValueChart='MiniChart',
+				DataChart='MiniChart',
+				HistoryChart='MiniChart',
+				LineGraph='MiniChart',
+				BarGraph='MiniChart',
+				StatChart='MiniChart',
+				PerformanceChart='MiniChart',
+				ActionButton='Button',
+				ClickButton='Button',
+				PushButton='Button',
+				RunButton='Button',
+				ExecuteButton='Button',
+				Switch='Toggle',
+				Checkbox='Toggle',
+				CheckBox='Toggle',
+				ToggleSwitch='Toggle',
+				BooleanToggle='Toggle',
+				OptionToggle='Toggle',
+				Range='Slider',
+				RangeSlider='Slider',
+				ValueSlider='Slider',
+				NumberSlider='Slider',
+				Select='Dropdown',
+				SelectBox='Dropdown',
+				ComboBox='Dropdown',
+				ChoiceBox='Dropdown',
+				ListSelect='Dropdown',
+				MenuSelect='Dropdown',
+				DropDown='Dropdown',
+				SearchableSelect='SearchDropdown',
+				SearchSelect='SearchDropdown',
+				FilterSelect='SearchDropdown',
+				ComboSearch='SearchDropdown',
+				SearchMenu='SearchDropdown',
+				Input='TextInput',
+				InputBox='TextInput',
+				TextBox='TextInput',
+				Textbox='TextInput',
+				TextField='TextInput',
+				Field='TextInput',
+				StringInput='TextInput',
+				ColourPicker='ColorPicker',
+				ColorChooser='ColorPicker',
+				ColourChooser='ColorPicker',
+				ColorSelect='ColorPicker',
+				ColourSelect='ColorPicker',
+				KeyBind='Keybind',
+				Hotkey='Keybind',
+				Shortcut='Keybind',
+				HotkeyPicker='Keybind',
+				Progress='ProgressBar',
+				LoadingBar='ProgressBar',
+				ProgressMeter='ProgressBar',
+				Meter='ProgressBar',
+				DataDisplay='NumberDisplay',
+				MetricDisplay='NumberDisplay',
+				Readout='NumberDisplay',
+				ReadoutDisplay='NumberDisplay',
+				TextLabel='Label',
+				Text='Label',
+				Caption='Label',
+				TextBlock='Paragraph',
+				Description='Paragraph',
+				Note='Paragraph',
+				BodyText='Paragraph',
+				Header='Section',
+				SectionHeader='Section',
+				Category='Section',
+				CategoryHeader='Section',
+				Line='Separator',
+				SeparatorLine='Separator',
+				Rule='Separator',
+				Tag='Badge',
+				Pill='Badge',
+				StatusBadge='Badge',
+				TagChip='Chip',
+				PillButton='Chip',
+				Information='Info',
+				InfoBox='Info',
+				Notice='Info',
+				Warn='Warning',
+				WarningBox='Warning',
+				Caution='Warning',
+				SuccessBox='Success',
+				CompleteMessage='Success',
+				StateCard='StatusCard',
+				InfoCard='StatusCard',
+				SummaryCard='StatusCard',
+				Console='LogConsole',
+				DebugConsole='LogConsole',
+				OutputConsole='LogConsole',
+				Code='CodeBlock',
+				CodeBox='CodeBlock',
+				ScriptBlock='CodeBlock',
+				Copy='CopyButton',
+				ClipboardButton='CopyButton',
+				CopyToClipboard='CopyButton',
+				Link='Hyperlink',
+				LinkButton='Hyperlink',
+				URLButton='Hyperlink',
+				KeyValueRow='KeyValue',
+				PropertyRow='KeyValue',
+				DetailRow='KeyValue',
+				StatCard='MiniStat',
+				MetricCard='MiniStat',
+				SmallStat='MiniStat',
+				SegmentedControl='Segmented',
+				OptionGroup='Segmented',
+				ChoiceTabs='Segmented',
+				ValueStepper='Stepper',
+				NumberStepper='Stepper',
+				ControlSearch='SearchBox',
+				SearchInput='SearchBox',
+				Space='Spacer',
+				Gap='Spacer',
+				DividerLine='Divider',
+				Picture='Image',
+				ImageBox='Image',
+				IconDisplay='Image',
+			}
+
+			local returnedMethodAliases = {
+				MoneyDisplay = {
+					SetBalance='Set',
+					SetAmount='Set',
+					SetMoney='Set',
+					SetCash='Set',
+					GetBalance='Get',
+					GetAmount='Get',
+					GetMoney='Get',
+					GetCash='Get',
+					Increase='Add',
+					Deposit='Add',
+					Credit='Add',
+					Earn='Add',
+					Gain='Add',
+					Decrease='Subtract',
+					Withdraw='Subtract',
+					Debit='Subtract',
+					Spend='Subtract',
+					Lose='Subtract',
+					Restore='Reset',
+					ResetBalance='Reset',
+					SetSymbol='SetCurrency',
+					SetPrefix='SetCurrency',
+					UseCompact='SetCompact',
+					SetPrecision='SetDecimals',
+					Highlight='Flash',
+				},
+				ProfitDisplay = {
+					Set='SetCurrent',
+					SetValue='SetCurrent',
+					Update='SetCurrent',
+					SetBalance='SetCurrent',
+					SetStart='SetStarting',
+					SetInitial='SetStarting',
+					SetBaseline='SetStarting',
+					Increase='Add',
+					AddProfit='Add',
+					Gain='Add',
+					Decrease='Subtract',
+					AddLoss='Subtract',
+					Lose='Subtract',
+					GetValue='Get',
+					GetCurrent='Get',
+					GetBalance='Get',
+					GetNet='GetProfit',
+					GetNetProfit='GetProfit',
+					GetGainLoss='GetProfit',
+					GetPnL='GetProfit',
+					GetPercent='GetPercentage',
+					GetROI='GetPercentage',
+					GetReturn='GetPercentage',
+					Restore='Reset',
+				},
+				TransactionList = {
+					AddTransaction='Add',
+					Push='Add',
+					Insert='Add',
+					Record='Add',
+					Log='Add',
+					Append='Add',
+					RemoveTransaction='Remove',
+					DeleteTransaction='Remove',
+					Delete='Remove',
+					Reset='Clear',
+					Erase='Clear',
+					Empty='Clear',
+					List='GetEntries',
+					GetAll='GetEntries',
+					GetTransactions='GetEntries',
+					SetLimit='SetMaxEntries',
+					SetMaximum='SetMaxEntries',
+					SetSymbol='SetCurrency',
+				},
+				StatGrid = {
+					AddCard='AddStat',
+					AddMetric='AddStat',
+					AddItem='AddStat',
+					Insert='AddStat',
+					SetStat='Set',
+					SetMetric='Set',
+					SetValue='Set',
+					Update='Set',
+					Increment='Add',
+					AddValue='Add',
+					Increase='Add',
+					GetStat='Get',
+					GetMetric='Get',
+					GetValue='Get',
+					RemoveStat='Remove',
+					RemoveMetric='Remove',
+					Delete='Remove',
+					Reset='Clear',
+					Erase='Clear',
+				},
+				GoalProgress = {
+					SetCurrent='Set',
+					SetProgress='Set',
+					Update='Set',
+					Increase='Add',
+					Advance='Add',
+					Progress='Add',
+					Decrease='Subtract',
+					Rewind='Subtract',
+					Regress='Subtract',
+					SetGoal='SetTarget',
+					SetMaximum='SetTarget',
+					SetMax='SetTarget',
+					GetCurrent='Get',
+					GetProgress='Get',
+					GetGoal='GetTarget',
+					GetMaximum='GetTarget',
+					GetMax='GetTarget',
+					GetPercent='GetPercentage',
+					GetCompletion='GetPercentage',
+					Completed='IsComplete',
+					Reached='IsComplete',
+					IsReached='IsComplete',
+					Restore='Reset',
+				},
+				Counter = {
+					SetValue='Set',
+					Update='Set',
+					GetValue='Get',
+					Count='Get',
+					Increase='Add',
+					Plus='Add',
+					Raise='Add',
+					Decrease='Subtract',
+					Minus='Subtract',
+					Lower='Subtract',
+					Next='Increment',
+					Up='Increment',
+					Previous='Decrement',
+					Prev='Decrement',
+					Down='Decrement',
+				},
+				NumberInput = {
+					SetValue='Set',
+					Update='Set',
+					GetValue='Get',
+					Increase='Add',
+					Plus='Add',
+					Increment='Add',
+					Decrease='Subtract',
+					Minus='Subtract',
+					Decrement='Subtract',
+				},
+				PercentageDisplay = {
+					SetValue='Set',
+					SetPercent='Set',
+					SetPercentage='Set',
+					Update='Set',
+					GetValue='Get',
+					GetPercent='Get',
+					GetPercentage='Get',
+					Increase='Add',
+					Raise='Add',
+					Decrease='Subtract',
+					Lower='Subtract',
+				},
+				TimerDisplay = {
+					SetTime='Set',
+					SetSeconds='Set',
+					SetValue='Set',
+					GetTime='Get',
+					GetSeconds='Get',
+					GetValue='Get',
+					Run='Start',
+					Resume='Start',
+					Play='Start',
+					Begin='Start',
+					PauseTimer='Pause',
+					Hold='Pause',
+					End='Stop',
+					Cancel='Stop',
+					Finish='Stop',
+					Restart='Reset',
+					Restore='Reset',
+					IncreaseTime='Add',
+					AddTime='Add',
+					DecreaseTime='Subtract',
+					RemoveTime='Subtract',
+					SetLength='SetDuration',
+					SetTimer='SetDuration',
+					Running='IsRunning',
+				},
+				ActivityLog = {
+					Write='Add',
+					Push='Add',
+					Record='Add',
+					Entry='Add',
+					Append='Add',
+					AddInfo='Info',
+					AddSuccess='Success',
+					AddWarning='Warning',
+					AddError='Error',
+					AddMoney='Money',
+					Warn='Warning',
+					Fail='Error',
+					Reset='Clear',
+					Erase='Clear',
+					Empty='Clear',
+					List='GetEntries',
+					GetAll='GetEntries',
+					EntriesList='GetEntries',
+				},
+				MiniChart = {
+					Append='Push',
+					Record='Push',
+					Plot='Push',
+					PushValue='Push',
+					AddPoint='Push',
+					SetValues='SetData',
+					Replace='SetData',
+					Load='SetData',
+					GetValues='GetData',
+					Values='GetData',
+					Points='GetData',
+					Reset='Clear',
+					Erase='Clear',
+					Empty='Clear',
+					SetLimit='SetMaxPoints',
+					SetMaximum='SetMaxPoints',
+				},
+			}
+
+			local optionAliases = {
+				_common = {
+					title='name',
+					label='name',
+					hint='tooltip',
+					onClick='callback',
+					onChange='callback',
+					onChanged='callback',
+					changed='callback',
+					handler='callback',
+				},
+				MoneyDisplay = {
+					amount='value',
+					balance='value',
+					cash='value',
+					money='value',
+					current='value',
+					symbol='currency',
+					sign='currency',
+					short='compact',
+					precision='decimals',
+				},
+				ProfitDisplay = {
+					start='startingValue',
+					initial='startingValue',
+					baseline='startingValue',
+					current='currentValue',
+					value='currentValue',
+					balance='currentValue',
+					percent='showPercentage',
+				},
+				TransactionList = {
+					limit='maxEntries',
+					maximum='maxEntries',
+					symbol='currency',
+				},
+				StatGrid = {
+					items='stats',
+					values='stats',
+					cards='stats',
+					cols='columns',
+				},
+				GoalProgress = {
+					value='current',
+					progress='current',
+					amount='current',
+					goal='target',
+					maximum='target',
+					max='target',
+				},
+				Counter = {
+					value='default',
+					minimum='min',
+					maximum='max',
+					increment='step',
+				},
+				NumberInput = {
+					value='default',
+					minimum='min',
+					maximum='max',
+					increment='step',
+				},
+				PercentageDisplay = {
+					percentage='value',
+					percent='value',
+					current='value',
+				},
+				TimerDisplay = {
+					seconds='value',
+					time='value',
+					current='value',
+					length='duration',
+					type='mode',
+				},
+				ActivityLog = {
+					limit='maxEntries',
+					maximum='maxEntries',
+				},
+				MiniChart = {
+					values='data',
+					points='data',
+					history='data',
+					limit='maxPoints',
+				},
+				Dropdown = {
+					values='items',
+					options='items',
+					list='items',
+					selected='default',
+				},
+				SearchDropdown = {
+					values='items',
+					options='items',
+					list='items',
+					selected='default',
+				},
+				Slider = {
+					minimum='min',
+					maximum='max',
+					value='default',
+				},
+				Toggle = {
+					value='default',
+					state='default',
+				},
+				TextInput = {
+					value='default',
+					text='default',
+					placeholderText='placeholder',
+				},
+			}
+
+			local function attachMethodAliases(object, targetName)
+				if type(object) ~= 'table' then return object end
+				for aliasName, methodName in pairs(returnedMethodAliases[targetName] or {}) do
+					if object[aliasName] == nil and type(object[methodName]) == 'function' then
+						object[aliasName] = object[methodName]
+					end
+				end
+				return object
+			end
+
+			local normalizedAliasLookup = {}
+			local function normalizeComponentName(name)
+				return tostring(name or ''):lower():gsub('[%s_%-%.]', '')
+			end
+			local function copyAliasOptions(targetName, supplied)
+				if type(supplied) ~= 'table' then return supplied end
+				local result = {}
+				for key, value in pairs(supplied) do result[key] = value end
+				local function apply(aliasMap)
+					for aliasKey, realKey in pairs(aliasMap or {}) do
+						if result[realKey] == nil and result[aliasKey] ~= nil then
+							result[realKey] = result[aliasKey]
+						end
+					end
+				end
+				apply(optionAliases._common)
+				apply(optionAliases[targetName])
+				return result
+			end
+
+			-- Add method aliases to canonical components without changing their layouts.
+			for targetName in pairs(returnedMethodAliases) do
+				local originalBuilder = Tab[targetName]
+				if type(originalBuilder) == 'function' then
+					local capturedTarget = targetName
+					Tab[targetName] = function(self, ...)
+						return attachMethodAliases(originalBuilder(self, ...), capturedTarget)
+					end
+				end
+			end
+
+			for aliasName, targetName in pairs(constructorAliases) do
+				normalizedAliasLookup[normalizeComponentName(aliasName)] = targetName
+				if Tab[aliasName] == nil then
+					local capturedTarget = targetName
+					Tab[aliasName] = function(self, suppliedOptions, ...)
+						local optionTarget = (capturedTarget == 'Stopwatch' or capturedTarget == 'Countdown') and 'TimerDisplay' or capturedTarget
+						local builder = self[capturedTarget]
+						if type(builder) ~= 'function' then
+							error("MenuXD component target '" .. tostring(capturedTarget) .. "' is unavailable", 2)
+						end
+						return builder(self, copyAliasOptions(optionTarget, suppliedOptions), ...)
+					end
+				end
+			end
+
+			local canonicalComponents = {'MoneyDisplay','ProfitDisplay','TransactionList','StatGrid','GoalProgress','Counter','NumberInput','PercentageDisplay','TimerDisplay','Stopwatch','Countdown','ActivityLog','MiniChart','Button','Toggle','Slider','Dropdown','SearchDropdown','TextInput','ColorPicker','Keybind','ProgressBar','NumberDisplay','Label','Paragraph','Section','Separator','Badge','Chip','Info','Warning','Success','StatusCard','LogConsole','CodeBlock','CopyButton','Hyperlink','KeyValue','MiniStat','Segmented','Stepper','SearchBox','Spacer','Divider','Image'}
+			for _, canonicalName in ipairs(canonicalComponents) do
+				normalizedAliasLookup[normalizeComponentName(canonicalName)] = canonicalName
+			end
+
+			Library.ComponentAliases = constructorAliases
+			Library.ComponentAliasNames = {}
+			for aliasName in pairs(constructorAliases) do table.insert(Library.ComponentAliasNames, aliasName) end
+			table.sort(Library.ComponentAliasNames)
+			Library.ComponentFactoryNames = {'CreateControl','AddControl','MakeControl','NewControl','Component','Widget','AddWidget','CreateWidget'}
+
+			function Library:ResolveComponentAlias(name)
+				return normalizedAliasLookup[normalizeComponentName(name)]
+			end
+			function Library:IsComponentAlias(name)
+				local normalized = normalizeComponentName(name)
+				local resolved = normalizedAliasLookup[normalized]
+				return resolved ~= nil and normalizeComponentName(resolved) ~= normalized
+			end
+			function Library:GetComponentAliases(target)
+				if target == nil then
+					local copy = {}
+					for aliasName, targetName in pairs(constructorAliases) do copy[aliasName] = targetName end
+					return copy
+				end
+				local resolvedTarget = Library:ResolveComponentAlias(target) or tostring(target)
+				local result = {}
+				for aliasName, targetName in pairs(constructorAliases) do
+					if targetName == resolvedTarget then table.insert(result, aliasName) end
+				end
+				table.sort(result)
+				return result
+			end
+			function Library:GetComponentAliasNames()
+				return table.clone(Library.ComponentAliasNames)
+			end
+
+			function Tab:CreateControl(kind, suppliedOptions, ...)
+				local resolved = Library:ResolveComponentAlias(kind)
+				if not resolved then error("Unknown MenuXD component or alias: " .. tostring(kind), 2) end
+				local builder = Tab[resolved]
+				if type(builder) ~= 'function' then
+					error("MenuXD component builder unavailable: " .. tostring(resolved), 2)
+				end
+				local optionTarget = (resolved == 'Stopwatch' or resolved == 'Countdown') and 'TimerDisplay' or resolved
+				return builder(Tab, copyAliasOptions(optionTarget, suppliedOptions), ...)
+			end
+			Tab.AddControl = Tab.CreateControl
+			Tab.MakeControl = Tab.CreateControl
+			Tab.NewControl = Tab.CreateControl
+			Tab.Component = Tab.CreateControl
+			Tab.Widget = Tab.CreateControl
+			Tab.AddWidget = Tab.CreateControl
+			Tab.CreateWidget = Tab.CreateControl
+
 		end)()
 
 		-- ── ADVANCED LAYOUT HELPERS ─────────────────────────────────────────────
@@ -10352,6 +11068,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				"Counter", "NumberInput", "PercentageDisplay", "PercentDisplay", "TimerDisplay", "Stopwatch", "Countdown",
 				"ActivityLog", "SessionLog", "MiniChart", "Chart", "Sparkline"
 			}
+			for _, aliasName in ipairs(Library.ComponentAliasNames or {}) do table.insert(names, aliasName) end
+			for _, factoryName in ipairs(Library.ComponentFactoryNames or {}) do table.insert(names, factoryName) end
 			local function callTabMethod(methodName, ...)
 				local fn = Tab[methodName]
 				if type(fn) ~= "function" then return nil end
