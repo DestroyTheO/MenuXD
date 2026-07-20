@@ -18,11 +18,11 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.99.2.1-alias-function-pack"
+Library.Version = "5.99.3-data-automation-pack"
 Library.Product = "MenuXD"
-Library.BuildId = "5.99.2.1.20260719.a874901929"
-Library.BuildTimestamp = "2026-07-19T19:51:59.325425Z"
-Library.SourceHash = "a874901929e909e1a264507c690d2d810dc50a9e4b9dcee93f4592fc3a46d3d0"
+Library.BuildId = "5.99.3.20260719.eb645cd919"
+Library.BuildTimestamp = "2026-07-20T01:15:38.898337Z"
+Library.SourceHash = "eb645cd91994e11644bddd65db303344113734f879040eb3b56ac1b8d66891e0"
 Library.SourceHashMode = "normalized-sha256"
 Library.ReleaseChannel = "stable"
 
@@ -10350,6 +10350,14 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			end
 
 			local constructorAliases = {
+				ObjectInspector='InstanceInspector',
+				PagedList='VirtualList',
+				Tracker='SessionTracker',
+				DataForm='Form',
+				ItemGrid='InventoryGrid',
+				Inventory='InventoryGrid',
+				TableView='DataTable',
+				DataGridTable='DataTable',
 				BalanceDisplay='MoneyDisplay',
 				CashDisplay='MoneyDisplay',
 				CurrencyDisplay='MoneyDisplay',
@@ -10997,7 +11005,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				end
 			end
 
-			local canonicalComponents = {'MoneyDisplay','ProfitDisplay','TransactionList','StatGrid','GoalProgress','Counter','NumberInput','PercentageDisplay','TimerDisplay','Stopwatch','Countdown','ActivityLog','MiniChart','Button','Toggle','Slider','Dropdown','SearchDropdown','TextInput','ColorPicker','Keybind','ProgressBar','NumberDisplay','Label','Paragraph','Section','Separator','Badge','Chip','Info','Warning','Success','StatusCard','LogConsole','CodeBlock','CopyButton','Hyperlink','KeyValue','MiniStat','Segmented','Stepper','SearchBox','Spacer','Divider','Image'}
+			local canonicalComponents = {'MoneyDisplay','ProfitDisplay','TransactionList','StatGrid','GoalProgress','Counter','NumberInput','PercentageDisplay','TimerDisplay','Stopwatch','Countdown','ActivityLog','MiniChart','DataTable','InventoryGrid','Form','SessionTracker','VirtualList','InstanceInspector','Button','Toggle','Slider','Dropdown','SearchDropdown','TextInput','ColorPicker','Keybind','ProgressBar','NumberDisplay','Label','Paragraph','Section','Separator','Badge','Chip','Info','Warning','Success','StatusCard','LogConsole','CodeBlock','CopyButton','Hyperlink','KeyValue','MiniStat','Segmented','Stepper','SearchBox','Spacer','Divider','Image'}
 			for _, canonicalName in ipairs(canonicalComponents) do
 				normalizedAliasLookup[normalizeComponentName(canonicalName)] = canonicalName
 			end
@@ -11054,6 +11062,945 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 		end)()
 
+		;(function()
+			-- ══════════════════════════════════════════════════════════════════
+			-- DATA & AUTOMATION PACK
+			-- Roblox binding, tables, inventory, forms, dialogs, stores,
+			-- event bus, sessions, virtual lists, undo/redo, inspector.
+			-- ══════════════════════════════════════════════════════════════════
+			local DA_POSITIVE = Color3.fromRGB(80,220,135)
+			local DA_NEGATIVE = Color3.fromRGB(255,88,105)
+			local DA_INFO = Color3.fromRGB(120,170,255)
+			local DA_MUTED = Library.Theme.TextSecondary
+
+			local function daText(value)
+				if value == nil then return 'nil' end
+				local kind = typeof and typeof(value) or type(value)
+				if kind == 'Color3' then
+					return string.format('Color3(%.3f, %.3f, %.3f)', value.R, value.G, value.B)
+				elseif kind == 'Vector3' or kind == 'Vector2' then
+					return tostring(value)
+				elseif kind == 'CFrame' or kind == 'UDim2' or kind == 'Instance' or kind == 'EnumItem' then
+					return tostring(value)
+				elseif kind == 'table' then
+					local ok, encoded = pcall(function()
+						return HttpService and HttpService:JSONEncode(value) or tostring(value)
+					end)
+					return ok and encoded or tostring(value)
+				end
+				return tostring(value)
+			end
+
+			local function cloneArray(list)
+				local copy = {}
+				for i, v in ipairs(list or {}) do copy[i] = v end
+				return copy
+			end
+
+			local function cloneDict(dict)
+				local copy = {}
+				for k, v in pairs(dict or {}) do copy[k] = v end
+				return copy
+			end
+
+			local function clearGuiChildren(parent)
+				for _, child in ipairs(parent:GetChildren()) do
+					if not child:IsA('UIListLayout') and not child:IsA('UIGridLayout') and not child:IsA('UIPadding') and not child:IsA('UIStroke') and not child:IsA('UICorner') then
+						child:Destroy()
+					end
+				end
+			end
+
+			local function createInnerScroll(parent, name, y, h)
+				local scroll = Instance.new('ScrollingFrame', parent)
+				scroll.Name = name or 'Scroll'
+				scroll.BackgroundColor3 = Library.Theme.Background
+				scroll.BorderSizePixel = 0
+				scroll.Position = UDim2.new(0,0,0,y or 0)
+				scroll.Size = UDim2.new(1,0,1,-(y or 0) - (h or 0))
+				scroll.ScrollBarThickness = 2
+				scroll.ScrollBarImageColor3 = Library.Theme.BorderHover
+				scroll.CanvasSize = UDim2.new(0,0,0,0)
+				corner(scroll, 7)
+				stroke(scroll, Library.Theme.Border)
+				pad(scroll, 6, 6, 6, 6)
+				return scroll
+			end
+
+			local function createListLayout(parent, padding)
+				local layout = Instance.new('UIListLayout', parent)
+				layout.SortOrder = Enum.SortOrder.LayoutOrder
+				layout.Padding = UDim.new(0, padding or 4)
+				layout:GetPropertyChangedSignal('AbsoluteContentSize'):Connect(function()
+					if parent and parent:IsA('ScrollingFrame') then
+						parent.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y + 2)
+					end
+				end)
+				return layout
+			end
+
+			local function createCell(parent, text, widthScale, x, align, size, color, font)
+				local lab = lbl(parent, tostring(text or ''), size or 11, color or Library.Theme.TextPrimary, font or FONT_UI, align or Enum.TextXAlignment.Left)
+				lab.Position = UDim2.new(x, 0, 0, 0)
+				lab.Size = UDim2.new(widthScale, -4, 1, 0)
+				lab.TextTruncate = Enum.TextTruncate.AtEnd
+				return lab
+			end
+
+			local function bindToControl(control, getter, connectFn)
+				control._valueBinding = control._valueBinding or {}
+				local binding = control._valueBinding
+				function control:Unbind()
+					if self._valueBinding then
+						if self._valueBinding.disconnect then pcall(self._valueBinding.disconnect) end
+						if self._valueBinding.connection and self._valueBinding.connection.Disconnect then pcall(function() self._valueBinding.connection:Disconnect() end) end
+						self._valueBinding = nil
+					end
+					return self
+				end
+				function control:IsBound() return self._valueBinding ~= nil and self._valueBinding.bound == true end
+				function control:GetBinding() return self._valueBinding end
+				function control:RefreshBinding()
+					if self._valueBinding and type(self._valueBinding.refresh) == 'function' then
+						pcall(self._valueBinding.refresh)
+					end
+					return self
+				end
+				local function setUp(bindingInfo, refresh, connection)
+					control:Unbind()
+					control._valueBinding = bindingInfo or {}
+					control._valueBinding.bound = true
+					control._valueBinding.refresh = refresh
+					control._valueBinding.connection = connection
+					if connection and control.Own then control:Own(connection) end
+					if control.Own then
+						control:Own(function()
+							if control._valueBinding == bindingInfo then control:Unbind() end
+						end)
+					end
+					pcall(refresh)
+					return control
+				end
+				function control:BindValueObject(valueObject)
+					if not valueObject then return self end
+					local function refresh()
+						local value = nil
+						pcall(function() value = valueObject.Value end)
+						if type(control.Set) == 'function' then control:Set(value, true) end
+					end
+					local connection = nil
+					pcall(function() connection = valueObject:GetPropertyChangedSignal('Value'):Connect(refresh) end)
+					if not connection and valueObject.Changed then pcall(function() connection = valueObject.Changed:Connect(refresh) end) end
+					return setUp({kind='ValueObject', target=valueObject}, refresh, connection)
+				end
+				function control:BindAttribute(instance, attributeName)
+					if not instance or attributeName == nil then return self end
+					local function refresh()
+						local value = nil
+						pcall(function() value = instance:GetAttribute(attributeName) end)
+						if type(control.Set) == 'function' then control:Set(value, true) end
+					end
+					local connection = nil
+					pcall(function() connection = instance:GetAttributeChangedSignal(attributeName):Connect(refresh) end)
+					return setUp({kind='Attribute', target=instance, attribute=attributeName}, refresh, connection)
+				end
+				function control:BindProperty(instance, propertyName)
+					if not instance or propertyName == nil then return self end
+					local function refresh()
+						local value = nil
+						pcall(function() value = instance[propertyName] end)
+						if type(control.Set) == 'function' then control:Set(value, true) end
+					end
+					local connection = nil
+					pcall(function() connection = instance:GetPropertyChangedSignal(propertyName):Connect(refresh) end)
+					return setUp({kind='Property', target=instance, property=propertyName}, refresh, connection)
+				end
+				function control:BindLeaderstat(statName, player)
+					local plr = player or Players.LocalPlayer
+					if not plr or statName == nil then return self end
+					local stats = plr:FindFirstChild('leaderstats')
+					local stat = stats and stats:FindFirstChild(statName)
+					if stat then return self:BindValueObject(stat) end
+					return self
+				end
+				return control
+			end
+
+			local function patchBindableBuilder(methodName)
+				local old = Tab[methodName]
+				if type(old) == 'function' then
+					Tab[methodName] = function(self, opts)
+						local control = old(self, opts)
+						bindToControl(control)
+						if type(opts)=='table' then
+							if opts.bindValueObject then control:BindValueObject(opts.bindValueObject) end
+							if opts.bindAttributeInstance and opts.bindAttribute then control:BindAttribute(opts.bindAttributeInstance, opts.bindAttribute) end
+							if opts.bindPropertyInstance and opts.bindProperty then control:BindProperty(opts.bindPropertyInstance, opts.bindProperty) end
+							if opts.bindLeaderstat then control:BindLeaderstat(opts.bindLeaderstat, opts.bindPlayer) end
+						end
+						return control
+					end
+				end
+			end
+
+			patchBindableBuilder('MoneyDisplay')
+			patchBindableBuilder('NumberDisplay')
+			patchBindableBuilder('PercentageDisplay')
+			patchBindableBuilder('GoalProgress')
+			patchBindableBuilder('Counter')
+			patchBindableBuilder('NumberInput')
+
+			function Tab:DataTable(opts)
+				opts = validate({
+					name='Data Table', description='', tooltip='', height=220, rowHeight=28,
+					columns={{name='Value', key='value', width=1}}, rows={}, rowIdKey='id', striped=true,
+					callback=function() end,
+				}, opts)
+				local hasDesc = tostring(opts.description or '') ~= ''
+				local headerY = hasDesc and 48 or 30
+				local Table = {Columns=opts.columns or {}, Rows={}, FilteredRows={}, Query='', SortKey=nil, SortDirection='ascending', SelectedRow=nil}
+				Table.Rows = {}
+				Table.FilteredRows = {}
+				Table.frame = base('DataTable', math.max(120, tonumber(opts.height) or 220) + headerY)
+				pad(Table.frame, 0, 9, 8, 10)
+				local title, desc = labelPair(Table.frame, opts.name, opts.description, 260, hasDesc and 8 or 10)
+				local header = Instance.new('Frame', Table.frame)
+				header.Name = 'Header'
+				header.BackgroundColor3 = Library.Theme.Background
+				header.BorderSizePixel = 0
+				header.Position = UDim2.new(0,0,0,headerY)
+				header.Size = UDim2.new(1,0,0,24)
+				corner(header, 6)
+				stroke(header, Library.Theme.Border)
+				local scroll = createInnerScroll(Table.frame, 'Rows', headerY + 28, 6)
+				createListLayout(scroll, 4)
+
+				local function normalizedRows()
+					local list = cloneArray(Table.Rows)
+					if Table.Query ~= '' then
+						local q = string.lower(tostring(Table.Query))
+						local filtered = {}
+						for _, row in ipairs(list) do
+							local hit = false
+							for _, col in ipairs(Table.Columns) do
+								local value = row[col.key]
+								if string.find(string.lower(daText(value)), q, 1, true) then hit = true break end
+							end
+							if hit then table.insert(filtered, row) end
+						end
+						list = filtered
+					end
+					if Table.SortKey then
+						table.sort(list, function(a, b)
+							local av, bv = a[Table.SortKey], b[Table.SortKey]
+							if type(av) == 'number' and type(bv) == 'number' then
+								return Table.SortDirection == 'descending' and av > bv or av < bv
+							end
+							av, bv = string.lower(daText(av)), string.lower(daText(bv))
+							return Table.SortDirection == 'descending' and av > bv or av < bv
+						end)
+					end
+					return list
+				end
+
+				local function renderHeader()
+					clearGuiChildren(header)
+					local total = 0
+					for _, col in ipairs(Table.Columns) do total = total + (tonumber(col.width) or 1) end
+					if total <= 0 then total = 1 end
+					local x = 0
+					for _, col in ipairs(Table.Columns) do
+						local w = (tonumber(col.width) or 1) / total
+						local cell = createCell(header, col.name or col.key or 'Column', w, x, Enum.TextXAlignment.Left, 11, Library.Theme.TextSecondary, FONT_UI_BOLD)
+						x = x + w
+					end
+				end
+
+				local function renderRows()
+					for _, child in ipairs(scroll:GetChildren()) do if child:IsA('GuiObject') then child:Destroy() end end
+					Table.FilteredRows = normalizedRows()
+					local total = 0
+					for _, col in ipairs(Table.Columns) do total = total + (tonumber(col.width) or 1) end
+					if total <= 0 then total = 1 end
+					for index, row in ipairs(Table.FilteredRows) do
+						local button = Instance.new('TextButton', scroll)
+						button.AutoButtonColor = false
+						button.Text = ''
+						button.Size = UDim2.new(1,0,0,math.max(24, tonumber(opts.rowHeight) or 28))
+						button.BackgroundColor3 = Table.SelectedRow == row and Library.Theme.Accent or ((opts.striped ~= false and index % 2 == 0) and Library.Theme.Background or Library.Theme.Section)
+						button.BorderSizePixel = 0
+						corner(button, 6)
+						stroke(button, Table.SelectedRow == row and Library.Theme.Accent or Library.Theme.Border)
+						local x = 0
+						for _, col in ipairs(Table.Columns) do
+							local w = (tonumber(col.width) or 1) / total
+							createCell(button, daText(row[col.key]), w, x, Enum.TextXAlignment.Left, 11, Library.Theme.TextPrimary, FONT_UI)
+							x = x + w
+						end
+						button.MouseButton1Click:Connect(function()
+							Table.SelectedRow = row
+							renderRows()
+							GUI:_invokeCallback(tostring(opts.name or 'DataTable'), opts.callback, row, index, Table)
+						end)
+					end
+				end
+
+				function Table:SetColumns(columns) Table.Columns = cloneArray(columns or {}); renderHeader(); renderRows(); return Table end
+				function Table:SetRows(rows) Table.Rows = cloneArray(rows or {}); renderRows(); return Table end
+				function Table:AddRow(row) table.insert(Table.Rows, row or {}); renderRows(); return Table end
+				function Table:RemoveRow(idOrPredicate)
+					local key = tostring(opts.rowIdKey or 'id')
+					for i = #Table.Rows, 1, -1 do
+						local row = Table.Rows[i]
+						local remove = false
+						if type(idOrPredicate) == 'function' then remove = idOrPredicate(row, i)
+						elseif type(idOrPredicate) == 'table' then remove = row == idOrPredicate
+						else remove = row[key] == idOrPredicate end
+						if remove then table.remove(Table.Rows, i) end
+					end
+					renderRows(); return Table
+				end
+				function Table:SortBy(key, direction) Table.SortKey = key; Table.SortDirection = (direction == 'descending' or direction == false) and 'descending' or 'ascending'; renderRows(); return Table end
+				function Table:Search(query) Table.Query = string.lower(tostring(query or '')); renderRows(); return Table end
+				function Table:Clear() Table.Rows = {}; Table.SelectedRow = nil; renderRows(); return Table end
+				function Table:GetRows() return Table.Rows end
+				function Table:GetFilteredRows() return Table.FilteredRows end
+				function Table:SelectRow(rowOrId)
+					local key = tostring(opts.rowIdKey or 'id')
+					for _, row in ipairs(Table.Rows) do
+						if row == rowOrId or row[key] == rowOrId then Table.SelectedRow = row break end
+					end
+					renderRows(); return Table
+				end
+				function Table:GetSelectedRow() return Table.SelectedRow end
+				renderHeader(); Table:SetRows(opts.rows)
+				addTooltip(Table.frame, opts.tooltip)
+				return _universalControl(Table, opts)
+			end
+
+			function Tab:InventoryGrid(opts)
+				opts = validate({name='Inventory', description='', tooltip='', height=220, columns=4, tileHeight=70, items={}, callback=function() end}, opts)
+				local hasDesc = tostring(opts.description or '') ~= ''
+				local headerY = hasDesc and 48 or 30
+				local Grid = {Items={}, SelectedId=nil}
+				Grid.frame = base('InventoryGrid', math.max(120, tonumber(opts.height) or 220) + headerY)
+				pad(Grid.frame, 0, 9, 8, 10)
+				local title = lbl(Grid.frame, tostring(opts.name), 13, Library.Theme.TextPrimary, FONT_UI_BOLD)
+				title.Name='ControlTitle'; title.Position=UDim2.new(0,0,0,hasDesc and 6 or 8); title.Size=UDim2.new(1,0,0,18)
+				if hasDesc then local desc=lbl(Grid.frame, tostring(opts.description), 10, Library.Theme.TextSecondary, FONT_UI); desc.Position=UDim2.new(0,0,0,24); desc.Size=UDim2.new(1,0,0,16) end
+				local scroll = createInnerScroll(Grid.frame, 'GridScroll', headerY, 4)
+				local layout = Instance.new('UIGridLayout', scroll)
+				layout.CellPadding = UDim2.new(0,6,0,6)
+				layout.CellSize = UDim2.new(1/math.max(1, math.floor(tonumber(opts.columns) or 4)), -8, 0, math.max(56, tonumber(opts.tileHeight) or 70))
+				layout:GetPropertyChangedSignal('AbsoluteContentSize'):Connect(function()
+					scroll.CanvasSize = UDim2.new(0,0,0,layout.AbsoluteContentSize.Y + 4)
+				end)
+				local function render()
+					for _, child in ipairs(scroll:GetChildren()) do if child:IsA('GuiObject') then child:Destroy() end end
+					for index, item in ipairs(Grid.Items) do
+						local tile = Instance.new('TextButton', scroll)
+						tile.AutoButtonColor = false
+						tile.Text=''
+						tile.BackgroundColor3 = Grid.SelectedId ~= nil and item.id == Grid.SelectedId and Library.Theme.Accent or Library.Theme.Section
+						tile.BorderSizePixel = 0
+						corner(tile, 8); stroke(tile, Grid.SelectedId ~= nil and item.id == Grid.SelectedId and Library.Theme.Accent or Library.Theme.Border)
+						local icon = lbl(tile, tostring(item.icon or '📦'), 18, Library.Theme.TextPrimary, FONT_UI_BOLD, Enum.TextXAlignment.Center)
+						icon.Position=UDim2.new(0,0,0,6); icon.Size=UDim2.new(1,0,0,22)
+						local name = lbl(tile, tostring(item.name or item.id or ('Item '..index)), 11, Library.Theme.TextPrimary, FONT_UI_BOLD, Enum.TextXAlignment.Center)
+						name.Position=UDim2.new(0,6,0,30); name.Size=UDim2.new(1,-12,0,16); name.TextTruncate = Enum.TextTruncate.AtEnd
+						local qty = lbl(tile, 'x'..tostring(item.quantity or 0), 10, DA_MUTED, FONT_MONO_BOLD, Enum.TextXAlignment.Center)
+						qty.Position=UDim2.new(0,6,1,-20); qty.Size=UDim2.new(1,-12,0,14)
+						tile.MouseButton1Click:Connect(function()
+							Grid.SelectedId = item.id
+							render()
+							GUI:_invokeCallback(tostring(opts.name or 'InventoryGrid'), opts.callback, item, index, Grid)
+						end)
+					end
+				end
+				function Grid:SetItems(items) Grid.Items = cloneArray(items or {}); render(); return Grid end
+				function Grid:AddItem(item) table.insert(Grid.Items, item or {}); render(); return Grid end
+				function Grid:FindItem(id)
+					for _, item in ipairs(Grid.Items) do if item.id == id then return item end end
+					return nil
+				end
+				function Grid:UpdateItem(id, patch)
+					local item = Grid:FindItem(id)
+					if item and type(patch) == 'table' then for k,v in pairs(patch) do item[k]=v end end
+					render(); return Grid
+				end
+				function Grid:SetQuantity(id, quantity)
+					local item = Grid:FindItem(id)
+					if item then item.quantity = tonumber(quantity) or 0 end
+					render(); return Grid
+				end
+				function Grid:RemoveItem(id)
+					for i = #Grid.Items, 1, -1 do if Grid.Items[i].id == id then table.remove(Grid.Items, i) end end
+					render(); return Grid
+				end
+				function Grid:Select(id) Grid.SelectedId = id; render(); return Grid end
+				function Grid:GetSelected() return Grid:FindItem(Grid.SelectedId) end
+				function Grid:Clear() Grid.Items = {}; Grid.SelectedId=nil; render(); return Grid end
+				Grid:SetItems(opts.items)
+				addTooltip(Grid.frame, opts.tooltip)
+				return _universalControl(Grid, opts)
+			end
+
+			function Tab:Form(opts)
+				opts = validate({name='Form', description='', tooltip='', fields={}, submitText='Submit', resetText='Reset', callback=function() end}, opts)
+				local fields = cloneArray(opts.fields or {})
+				local height = math.max(140, 40 + (#fields * 34) + 34)
+				local hasDesc = tostring(opts.description or '') ~= ''
+				local Form = {Values={}, Defaults={}, Fields={}, Errors={}}
+				Form.frame = base('Form', height + (hasDesc and 20 or 0))
+				pad(Form.frame, 0, 9, 8, 10)
+				local title, desc = labelPair(Form.frame, opts.name, opts.description, 220, hasDesc and 8 or 10)
+				local body = Instance.new('Frame', Form.frame)
+				body.BackgroundTransparency = 1
+				body.Position = UDim2.new(0,0,0,hasDesc and 50 or 30)
+				body.Size = UDim2.new(1,0,1,-(hasDesc and 54 or 34))
+				local layout = createListLayout(body, 4)
+				local status = lbl(body, '', 10, DA_MUTED, FONT_UI)
+				status.Size = UDim2.new(1,0,0,16)
+				status.LayoutOrder = 9997
+				local buttonRow = Instance.new('Frame', body)
+				buttonRow.BackgroundTransparency = 1
+				buttonRow.Size = UDim2.new(1,0,0,26)
+				buttonRow.LayoutOrder = 9998
+				local submit = mkbtn(buttonRow, tostring(opts.submitText), 0, 0, 90, 26, function() end)
+				submit.Name='SubmitButton'
+				local reset = mkbtn(buttonRow, tostring(opts.resetText), 96, 0, 90, 26, function() end)
+				reset.Name='ResetButton'
+
+				local function setStatus(text, color)
+					status.Text = tostring(text or '')
+					status.TextColor3 = color or DA_MUTED
+				end
+
+				local function addField(field)
+					field = field or {}
+					local row = Instance.new('Frame', body)
+					row.Name = tostring(field.id or field.name or ('Field'..tostring(#Form.Fields+1)))
+					row.BackgroundColor3 = Library.Theme.Section
+					row.BorderSizePixel = 0
+					row.Size = UDim2.new(1,0,0,30)
+					row.LayoutOrder = #Form.Fields + 1
+					corner(row, 6); stroke(row, Library.Theme.Border)
+					local label = lbl(row, tostring(field.name or field.id or 'Field'), 11, Library.Theme.TextPrimary, FONT_UI_BOLD)
+					label.Position=UDim2.new(0,8,0,0); label.Size=UDim2.new(0.38,-10,1,0)
+					local id = tostring(field.id or field.name or ('field' .. tostring(#Form.Fields+1)))
+					local defaultValue = field.default ~= nil and field.default or field.value
+					Form.Values[id] = defaultValue
+					Form.Defaults[id] = defaultValue
+					local api = {id=id, type=tostring(field.type or 'TextInput')}
+					if api.type == 'Toggle' then
+						local button = mkbtn(row, '', 0, 0, 56, 22, function() end)
+						button.AnchorPoint = Vector2.new(1,0.5)
+						button.Position = UDim2.new(1,-8,0.5,0)
+						local function refreshToggle()
+							button.Text = Form.Values[id] and 'ON' or 'OFF'
+						end
+						function api:Set(value) Form.Values[id] = value == true; refreshToggle() end
+						button.MouseButton1Click:Connect(function() api:Set(not Form.Values[id]) end)
+						refreshToggle()
+					elseif api.type == 'Dropdown' then
+						local items = cloneArray(field.items or field.options or {})
+						local idx = 1
+						for i, v in ipairs(items) do if v == defaultValue then idx = i break end end
+						Form.Values[id] = items[idx]
+						local valueBtn = mkbtn(row, '', 0,0, 140, 22, function() end)
+						valueBtn.AnchorPoint = Vector2.new(1,0.5)
+						valueBtn.Position = UDim2.new(1,-8,0.5,0)
+						local function refreshDrop() valueBtn.Text = daText(Form.Values[id]) end
+						function api:Set(value)
+							for i, item in ipairs(items) do if item == value then idx = i break end end
+							Form.Values[id] = value
+							refreshDrop()
+						end
+						valueBtn.MouseButton1Click:Connect(function()
+							if #items == 0 then return end
+							idx = idx % #items + 1
+							Form.Values[id] = items[idx]
+							refreshDrop()
+						end)
+						refreshDrop()
+					else
+						local box = Instance.new('TextBox', row)
+						box.BackgroundColor3 = Library.Theme.Background
+						box.BorderSizePixel = 0
+						box.ClearTextOnFocus = false
+						box.Text = daText(defaultValue ~= nil and defaultValue or '')
+						box.PlaceholderText = tostring(field.placeholder or '')
+						box.TextColor3 = Library.Theme.TextPrimary
+						box.FontFace = FONT_UI
+						box.TextSize = 11
+						box.AnchorPoint = Vector2.new(1,0.5)
+						box.Position = UDim2.new(1,-8,0.5,0)
+						box.Size = UDim2.new(0, api.type == 'NumberInput' and 100 or 150, 0, 22)
+						corner(box, 5); stroke(box, Library.Theme.Border)
+						function api:Set(value)
+							if api.type == 'NumberInput' then
+								Form.Values[id] = tonumber(value) or 0
+								box.Text = tostring(Form.Values[id])
+							else
+								Form.Values[id] = tostring(value or '')
+								box.Text = tostring(Form.Values[id])
+							end
+						end
+						box.FocusLost:Connect(function()
+							if api.type == 'NumberInput' then
+								Form.Values[id] = tonumber(box.Text) or 0
+								box.Text = tostring(Form.Values[id])
+							else
+								Form.Values[id] = box.Text
+							end
+						end)
+					end
+					Form.Fields[id] = {Config=field, Api=api, Row=row}
+				end
+
+				for _, field in ipairs(fields) do addField(field) end
+
+				function Form:GetValues() return cloneDict(Form.Values) end
+				function Form:GetValue(id) return Form.Values[id] end
+				function Form:SetValue(id, value)
+					if Form.Fields[id] and Form.Fields[id].Api and type(Form.Fields[id].Api.Set) == 'function' then
+						Form.Fields[id].Api:Set(value)
+					else Form.Values[id] = value end
+					return Form
+				end
+				function Form:Reset()
+					for id, value in pairs(Form.Defaults) do Form:SetValue(id, value) end
+					setStatus('Reset.', DA_MUTED)
+					return Form
+				end
+				function Form:Validate()
+					local errors = {}
+					for id, field in pairs(Form.Fields) do
+						local cfg = field.Config or {}
+						local value = Form.Values[id]
+						if cfg.required and (value == nil or value == '' or value == false) then table.insert(errors, id .. ' is required') end
+						if cfg.min ~= nil and tonumber(value) and tonumber(value) < tonumber(cfg.min) then table.insert(errors, id .. ' is below minimum') end
+						if cfg.max ~= nil and tonumber(value) and tonumber(value) > tonumber(cfg.max) then table.insert(errors, id .. ' is above maximum') end
+						if type(cfg.validator) == 'function' then
+							local ok, result = pcall(cfg.validator, value, Form.Values)
+							if ok and result == false then table.insert(errors, id .. ' failed validation')
+							elseif ok and type(result) == 'string' then table.insert(errors, result)
+							end
+						end
+					end
+					Form.Errors = errors
+					setStatus(#errors == 0 and 'Validation passed.' or table.concat(errors, ' | '), #errors == 0 and DA_POSITIVE or DA_NEGATIVE)
+					return #errors == 0, errors
+				end
+				function Form:Submit()
+					local ok, errors = Form:Validate()
+					if ok then GUI:_invokeCallback(tostring(opts.name or 'Form'), opts.callback, Form:GetValues(), Form) end
+					return ok, errors
+				end
+				submit.MouseButton1Click:Connect(function() Form:Submit() end)
+				reset.MouseButton1Click:Connect(function() Form:Reset() end)
+				addTooltip(Form.frame, opts.tooltip)
+				return _universalControl(Form, opts)
+			end
+
+			-- Dialog / modal manager -------------------------------------------------
+			GUI._dialogs = GUI._dialogs or {}
+			local function ensureDialogRoot()
+				if GUI._dialogRoot and GUI._dialogRoot.Parent then return GUI._dialogRoot end
+				local root = Instance.new('Frame', SG)
+				root.Name = 'MenuXDDialogRoot'
+				root.BackgroundTransparency = 1
+				root.Size = UDim2.fromScale(1,1)
+				root.ZIndex = 900
+				GUI._dialogRoot = root
+				return root
+			end
+			function GUI:CloseDialogs()
+				for i = #GUI._dialogs, 1, -1 do
+					local dialog = GUI._dialogs[i]
+					if dialog and dialog.Close then pcall(dialog.Close) end
+					GUI._dialogs[i] = nil
+				end
+				if GUI._dialogRoot and GUI._dialogRoot.Parent then GUI._dialogRoot:Destroy() end
+				GUI._dialogRoot = nil
+				return true
+			end
+			local function createDialog(opts)
+				opts = opts or {}
+				local root = ensureDialogRoot()
+				local overlay = Instance.new('TextButton', root)
+				overlay.AutoButtonColor = false
+				overlay.Text = ''
+				overlay.BackgroundColor3 = Color3.new(0,0,0)
+				overlay.BackgroundTransparency = 0.35
+				overlay.Size = UDim2.fromScale(1,1)
+				overlay.ZIndex = 901
+				local panel = Instance.new('Frame', overlay)
+				panel.BackgroundColor3 = Library.Theme.Panel
+				panel.BorderSizePixel = 0
+				panel.Size = UDim2.new(0, math.max(280, tonumber(opts.width) or 360), 0, math.max(130, tonumber(opts.height) or 160))
+				panel.AnchorPoint = Vector2.new(0.5,0.5)
+				panel.Position = UDim2.fromScale(0.5,0.5)
+				panel.ZIndex = 902
+				corner(panel, 10); stroke(panel, Library.Theme.BorderHover)
+				local title = lbl(panel, tostring(opts.title or 'Dialog'), 14, Library.Theme.TextPrimary, FONT_UI_BOLD)
+				title.Position=UDim2.new(0,12,0,10); title.Size=UDim2.new(1,-24,0,20); title.ZIndex=903
+				local message = lbl(panel, tostring(opts.message or opts.text or ''), 11, Library.Theme.TextSecondary, FONT_UI)
+				message.TextWrapped=true
+				message.Position=UDim2.new(0,12,0,34); message.Size=UDim2.new(1,-24,0,54); message.ZIndex=903
+				local content = Instance.new('Frame', panel)
+				content.BackgroundTransparency = 1
+				content.Position = UDim2.new(0,12,0,92)
+				content.Size = UDim2.new(1,-24,1,-132)
+				content.ZIndex = 903
+				local buttonBar = Instance.new('Frame', panel)
+				buttonBar.BackgroundTransparency = 1
+				buttonBar.Position = UDim2.new(0,12,1,-34)
+				buttonBar.Size = UDim2.new(1,-24,0,24)
+				buttonBar.ZIndex = 903
+				local dialog = {}
+				function dialog:Close()
+					for i = #GUI._dialogs, 1, -1 do if GUI._dialogs[i] == dialog then table.remove(GUI._dialogs, i) end end
+					if overlay and overlay.Parent then overlay:Destroy() end
+					if GUI._dialogRoot and #GUI._dialogs == 0 and GUI._dialogRoot.Parent then GUI._dialogRoot:Destroy(); GUI._dialogRoot = nil end
+				end
+				table.insert(GUI._dialogs, dialog)
+				return dialog, panel, content, buttonBar, overlay, message
+			end
+			function GUI:Alert(opts)
+				local dialog, panel, content, buttonBar = createDialog(opts)
+				local okBtn = mkbtn(buttonBar, tostring((opts or {}).okText or 'OK'), 0, 0, 70, 24, function()
+					if type((opts or {}).onConfirm) == 'function' then pcall((opts or {}).onConfirm) end
+					dialog:Close()
+				end)
+				return dialog
+			end
+			function GUI:Confirm(opts)
+				local dialog, panel, content, buttonBar = createDialog(opts)
+				local cancel = mkbtn(buttonBar, tostring((opts or {}).cancelText or 'Cancel'), 0, 0, 76, 24, function()
+					if type((opts or {}).onCancel) == 'function' then pcall((opts or {}).onCancel) end
+					dialog:Close()
+				end)
+				local confirm = mkbtn(buttonBar, tostring((opts or {}).confirmText or 'Confirm'), 82, 0, 82, 24, function()
+					if type((opts or {}).onConfirm) == 'function' then pcall((opts or {}).onConfirm) end
+					dialog:Close()
+				end)
+				return dialog
+			end
+			function GUI:Prompt(opts)
+				local dialog, panel, content, buttonBar = createDialog(opts)
+				local box = Instance.new('TextBox', content)
+				box.BackgroundColor3 = Library.Theme.Background
+				box.BorderSizePixel = 0
+				box.ClearTextOnFocus = false
+				box.PlaceholderText = tostring((opts or {}).placeholder or '')
+				box.Text = tostring((opts or {}).default or '')
+				box.TextColor3 = Library.Theme.TextPrimary
+				box.FontFace = FONT_UI
+				box.TextSize = 12
+				box.Size = UDim2.new(1,0,0,26)
+				corner(box, 6); stroke(box, Library.Theme.Border)
+				local cancel = mkbtn(buttonBar, tostring((opts or {}).cancelText or 'Cancel'), 0, 0, 76, 24, function()
+					if type((opts or {}).onCancel) == 'function' then pcall((opts or {}).onCancel) end
+					dialog:Close()
+				end)
+				local confirm = mkbtn(buttonBar, tostring((opts or {}).confirmText or 'OK'), 82, 0, 70, 24, function()
+					if type((opts or {}).callback) == 'function' then pcall((opts or {}).callback, box.Text) end
+					if type((opts or {}).onConfirm) == 'function' then pcall((opts or {}).onConfirm, box.Text) end
+					dialog:Close()
+				end)
+				return dialog, box
+			end
+			GUI.InputDialog = GUI.Prompt
+			function GUI:ChoiceDialog(opts)
+				local dialog, panel, content, buttonBar = createDialog(opts)
+				local x = 0
+				for _, choice in ipairs((opts and opts.choices) or {}) do
+					local width = math.max(60, tonumber(choice.width) or 80)
+					mkbtn(buttonBar, tostring(choice.name or choice.text or 'Choice'), x, 0, width, 24, function()
+						if type(choice.callback) == 'function' then pcall(choice.callback, choice.value) end
+						dialog:Close()
+					end)
+					x = x + width + 6
+				end
+				return dialog
+			end
+
+			-- Reactive store --------------------------------------------------------
+			function GUI:CreateStore(initialState)
+				local Store = {State=cloneDict(initialState or {}), Watchers={}, ComputedMap={}}
+				function Store:Get(key) return Store.State[key] end
+				function Store:GetState() return cloneDict(Store.State) end
+				local function fire(key, value, old)
+					for _, fn in ipairs(Store.Watchers[key] or {}) do pcall(fn, value, old, Store.State, Store) end
+					for computedKey, cfg in pairs(Store.ComputedMap) do
+						for _, dep in ipairs(cfg.deps or {}) do
+							if dep == key then
+								local ok, result = pcall(cfg.fn, Store.State, Store)
+								if ok then Store:Set(computedKey, result, true) end
+								break
+							end
+						end
+					end
+				end
+				function Store:Set(key, value, silent)
+					local old = Store.State[key]
+					Store.State[key] = value
+					if silent ~= true then fire(key, value, old) end
+					return Store
+				end
+				function Store:Add(key, amount) return Store:Set(key, (tonumber(Store.State[key]) or 0) + (tonumber(amount) or 0)) end
+				function Store:Toggle(key) return Store:Set(key, not not not Store.State[key]) end
+				function Store:Update(values)
+					for k,v in pairs(values or {}) do Store:Set(k, v) end
+					return Store
+				end
+				function Store:Watch(key, callback, fireNow)
+					Store.Watchers[key] = Store.Watchers[key] or {}
+					table.insert(Store.Watchers[key], callback)
+					if fireNow == true then pcall(callback, Store.State[key], nil, Store.State, Store) end
+					return function()
+						for i = #Store.Watchers[key], 1, -1 do if Store.Watchers[key][i] == callback then table.remove(Store.Watchers[key], i) end end
+					end
+				end
+				function Store:Computed(name, deps, fn)
+					Store.ComputedMap[name] = {deps=cloneArray(deps or {}), fn=fn}
+					local ok, result = pcall(fn, Store.State, Store)
+					if ok then Store:Set(name, result, true) end
+					return Store
+				end
+				function Store:Bind(key, control, methodName)
+					local setter = methodName or 'Set'
+					if control and type(control[setter]) == 'function' then
+						return Store:Watch(key, function(value) control[setter](control, value, true) end, true)
+					end
+					return function() end
+				end
+				function Store:Destroy() Store.Watchers = {}; Store.ComputedMap = {}; Store.State = {} end
+				return Store
+			end
+
+			-- Event bus -------------------------------------------------------------
+			GUI._eventBus = GUI._eventBus or {}
+			function GUI:On(eventName, callback)
+				GUI._eventBus[eventName] = GUI._eventBus[eventName] or {}
+				local token = {callback=callback}
+				table.insert(GUI._eventBus[eventName], token)
+				return token
+			end
+			function GUI:Once(eventName, callback)
+				local token
+				token = GUI:On(eventName, function(...)
+					GUI:Off(eventName, token)
+					return callback(...)
+				end)
+				return token
+			end
+			function GUI:Off(eventName, tokenOrCallback)
+				local list = GUI._eventBus[eventName] or {}
+				for i = #list, 1, -1 do
+					if list[i] == tokenOrCallback or list[i].callback == tokenOrCallback then table.remove(list, i) end
+				end
+				GUI._eventBus[eventName] = list
+				return true
+			end
+			function GUI:Emit(eventName, ...)
+				for _, token in ipairs(cloneArray(GUI._eventBus[eventName] or {})) do
+					pcall(token.callback, ...)
+				end
+				return true
+			end
+
+			-- Undo / redo -----------------------------------------------------------
+			GUI._undoStack = GUI._undoStack or {}
+			GUI._redoStack = GUI._redoStack or {}
+			function GUI:RecordAction(action)
+				table.insert(GUI._undoStack, action or {})
+				GUI._redoStack = {}
+				return action
+			end
+			function GUI:CanUndo() return #GUI._undoStack > 0 end
+			function GUI:CanRedo() return #GUI._redoStack > 0 end
+			function GUI:Undo()
+				local action = table.remove(GUI._undoStack)
+				if action and type(action.undo) == 'function' then pcall(action.undo) end
+				if action then table.insert(GUI._redoStack, action) end
+				return action
+			end
+			function GUI:Redo()
+				local action = table.remove(GUI._redoStack)
+				if action and type(action.redo) == 'function' then pcall(action.redo) end
+				if action then table.insert(GUI._undoStack, action) end
+				return action
+			end
+			function GUI:ClearHistory() GUI._undoStack = {}; GUI._redoStack = {}; return true end
+
+			function Tab:SessionTracker(opts)
+				opts = validate({name='Session Tracker', tooltip='', autoTime=true, callback=function() end}, opts)
+				local Session = {StartedAt=os.clock(), Metrics={}, Runtime=0}
+				Session.frame = base('SessionTracker', 180)
+				pad(Session.frame,0,9,8,10)
+				local title = lbl(Session.frame, tostring(opts.name), 13, Library.Theme.TextPrimary, FONT_UI_BOLD)
+				title.Name='ControlTitle'; title.Position=UDim2.new(0,0,0,6); title.Size=UDim2.new(1,0,0,18)
+				local runtimeLabel = lbl(Session.frame, 'Runtime  00:00', 11, Library.Theme.TextSecondary, FONT_MONO_BOLD)
+				runtimeLabel.Position=UDim2.new(0,0,0,26); runtimeLabel.Size=UDim2.new(1,0,0,16)
+				local scroll = createInnerScroll(Session.frame, 'MetricScroll', 48, 4)
+				createListLayout(scroll, 4)
+				local taskName = 'SessionTracker_' .. tostring(opts.name)
+				local function render()
+					for _, child in ipairs(scroll:GetChildren()) do if child:IsA('GuiObject') then child:Destroy() end end
+					Session.Runtime = math.max(0, os.clock() - Session.StartedAt)
+					runtimeLabel.Text = 'Runtime  ' .. formatClock(Session.Runtime, true, false)
+					for key, value in pairs(Session.Metrics) do
+						local row = Instance.new('Frame', scroll)
+						row.BackgroundColor3 = Library.Theme.Section; row.BorderSizePixel = 0; row.Size = UDim2.new(1,0,0,24)
+						corner(row, 6); stroke(row, Library.Theme.Border)
+						local left = lbl(row, tostring(key), 11, Library.Theme.TextPrimary, FONT_UI_BOLD)
+						left.Position=UDim2.new(0,8,0,0); left.Size=UDim2.new(0.55,-8,1,0)
+						local perHour = Session:GetRate(key)
+						local right = lbl(row, tostring(value) .. '   (' .. string.format('%.2f/hr', perHour) .. ')', 11, Library.Theme.Accent, FONT_MONO_BOLD, Enum.TextXAlignment.Right)
+						right.Position=UDim2.new(0.45,0,0,0); right.Size=UDim2.new(0.55,-8,1,0)
+					end
+				end
+				function Session:Track(key, amount)
+					Session.Metrics[key] = (tonumber(Session.Metrics[key]) or 0) + (tonumber(amount) or 0)
+					render(); GUI:_invokeCallback(tostring(opts.name or 'SessionTracker'), opts.callback, key, Session.Metrics[key], Session)
+					return Session
+				end
+				function Session:Get(key) return Session.Metrics[key] or 0 end
+				function Session:GetRate(key)
+					local hours = math.max((os.clock() - Session.StartedAt) / 3600, 1/3600)
+					return (tonumber(Session.Metrics[key]) or 0) / hours
+				end
+				function Session:GetSummary()
+					return {runtime=Session.Runtime, metrics=cloneDict(Session.Metrics)}
+				end
+				function Session:TrackTime() render(); return Session end
+				function Session:Reset() Session.StartedAt=os.clock(); Session.Metrics={}; render(); return Session end
+				local control = _universalControl(Session, opts)
+				if opts.autoTime ~= false then
+					GUI:StartTask(taskName, function(token)
+						while token:Alive() do render(); token:Wait(1) end
+					end)
+					control:Own(function() GUI:StopTask(taskName, 'session-destroy') end)
+				end
+				render(); addTooltip(Session.frame, opts.tooltip)
+				return control
+			end
+
+			function Tab:VirtualList(opts)
+				opts = validate({name='Virtual List', tooltip='', height=220, rowHeight=28, pageSize=50, items={}, callback=function() end}, opts)
+				local List = {Items=cloneArray(opts.items), Page=1, PageSize=math.max(1, math.floor(tonumber(opts.pageSize) or 50)), Renderer=nil}
+				List.frame = base('VirtualList', math.max(120, tonumber(opts.height) or 220) + 36)
+				pad(List.frame,0,9,8,10)
+				local title = lbl(List.frame, tostring(opts.name), 13, Library.Theme.TextPrimary, FONT_UI_BOLD)
+				title.Name='ControlTitle'; title.Position=UDim2.new(0,0,0,6); title.Size=UDim2.new(1,0,0,18)
+				local pageLabel = lbl(List.frame, '', 10, Library.Theme.TextSecondary, FONT_MONO_BOLD, Enum.TextXAlignment.Right)
+				pageLabel.Position=UDim2.new(0.55,0,0,7); pageLabel.Size=UDim2.new(0.45,0,0,16)
+				local scroll = createInnerScroll(List.frame, 'VirtualRows', 28, 28)
+				createListLayout(scroll, 4)
+				local footer = Instance.new('Frame', List.frame)
+				footer.BackgroundTransparency = 1; footer.Position=UDim2.new(0,0,1,-24); footer.Size=UDim2.new(1,0,0,24)
+				local prev = mkbtn(footer, '< Prev', 0,0,70,24, function() end)
+				local nextb = mkbtn(footer, 'Next >', 76,0,70,24, function() end)
+				local function pageCount() return math.max(1, math.ceil(#List.Items / List.PageSize)) end
+				local function defaultRenderer(row, item, index)
+					createCell(row, daText(item.name or item.value or item), 1, 0, Enum.TextXAlignment.Left, 11, Library.Theme.TextPrimary, FONT_UI)
+				end
+				local function render()
+					for _, child in ipairs(scroll:GetChildren()) do if child:IsA('GuiObject') then child:Destroy() end end
+					List.Page = math.clamp(List.Page, 1, pageCount())
+					pageLabel.Text = 'Page ' .. tostring(List.Page) .. ' / ' .. tostring(pageCount())
+					local startIndex = (List.Page - 1) * List.PageSize + 1
+					local finish = math.min(#List.Items, startIndex + List.PageSize - 1)
+					for i = startIndex, finish do
+						local item = List.Items[i]
+						local row = Instance.new('TextButton', scroll)
+						row.AutoButtonColor = false; row.Text=''; row.BackgroundColor3 = Library.Theme.Section; row.BorderSizePixel = 0; row.Size = UDim2.new(1,0,0,math.max(24, tonumber(opts.rowHeight) or 28))
+						corner(row, 6); stroke(row, Library.Theme.Border)
+						local renderer = List.Renderer or defaultRenderer
+						renderer(row, item, i)
+						row.MouseButton1Click:Connect(function() GUI:_invokeCallback(tostring(opts.name or 'VirtualList'), opts.callback, item, i, List) end)
+					end
+				end
+				function List:SetItems(items) List.Items = cloneArray(items or {}); List.Page = 1; render(); return List end
+				function List:SetRenderer(fn) List.Renderer = fn; render(); return List end
+				function List:NextPage() List.Page = math.min(pageCount(), List.Page + 1); render(); return List end
+				function List:PreviousPage() List.Page = math.max(1, List.Page - 1); render(); return List end
+				function List:GoToPage(page) List.Page = math.clamp(math.floor(tonumber(page) or 1),1,pageCount()); render(); return List end
+				function List:GetPage() return List.Page end
+				function List:GetPageCount() return pageCount() end
+				function List:GetItems() return List.Items end
+				prev.MouseButton1Click:Connect(function() List:PreviousPage() end)
+				nextb.MouseButton1Click:Connect(function() List:NextPage() end)
+				render(); addTooltip(List.frame, opts.tooltip)
+				return _universalControl(List, opts)
+			end
+
+			function Tab:InstanceInspector(opts)
+				opts = validate({name='Instance Inspector', tooltip='', instance=nil, properties={{'Name'},{'ClassName'},{'Parent'},{'Position'},{'Size'},{'CFrame'},{'Transparency'},{'Color'},{'Anchored'},{'CanCollide'},{'Value'},{'Text'},{'Enabled'}}}, opts)
+				local Inspector = {Instance=opts.instance, PropertyNames={}, Watches={}}
+				for _, item in ipairs(opts.properties or {}) do table.insert(Inspector.PropertyNames, type(item)=='table' and item[1] or tostring(item)) end
+				Inspector.frame = base('InstanceInspector', 220)
+				pad(Inspector.frame,0,9,8,10)
+				local title = lbl(Inspector.frame, tostring(opts.name), 13, Library.Theme.TextPrimary, FONT_UI_BOLD)
+				title.Name='ControlTitle'; title.Position=UDim2.new(0,0,0,6); title.Size=UDim2.new(1,0,0,18)
+				local subtitle = lbl(Inspector.frame, '', 10, Library.Theme.TextSecondary, FONT_MONO)
+				subtitle.Position=UDim2.new(0,0,0,24); subtitle.Size=UDim2.new(1,0,0,16)
+				local scroll = createInnerScroll(Inspector.frame, 'PropertyScroll', 44, 4)
+				createListLayout(scroll, 4)
+				local function readProperty(instance, property)
+					local ok, value = pcall(function() return instance[property] end)
+					return ok and value or '[unavailable]'
+				end
+				local function render()
+					for _, child in ipairs(scroll:GetChildren()) do if child:IsA('GuiObject') then child:Destroy() end end
+					local instance = Inspector.Instance
+					subtitle.Text = instance and (instance:GetFullName() .. '  [' .. instance.ClassName .. ']') or 'No instance selected'
+					if not instance then return end
+					for _, property in ipairs(Inspector.PropertyNames) do
+						local row = Instance.new('Frame', scroll)
+						row.BackgroundColor3 = Library.Theme.Section; row.BorderSizePixel=0; row.Size = UDim2.new(1,0,0,24)
+						corner(row,6); stroke(row, Library.Theme.Border)
+						local left = lbl(row, tostring(property), 11, Library.Theme.TextPrimary, FONT_UI_BOLD)
+						left.Position=UDim2.new(0,8,0,0); left.Size=UDim2.new(0.38,-8,1,0)
+						local right = lbl(row, daText(readProperty(instance, property)), 10, Library.Theme.TextSecondary, FONT_MONO, Enum.TextXAlignment.Right)
+						right.Position=UDim2.new(0.38,0,0,0); right.Size=UDim2.new(0.62,-8,1,0)
+						right.TextTruncate = Enum.TextTruncate.AtEnd
+					end
+				end
+				function Inspector:SetInstance(instance) Inspector.Instance = instance; render(); return Inspector end
+				function Inspector:Refresh() render(); return Inspector end
+				function Inspector:GetProperty(property)
+					if not Inspector.Instance then return nil end
+					return readProperty(Inspector.Instance, property)
+				end
+				function Inspector:WatchProperty(property)
+					if not Inspector.Instance then return nil end
+					Inspector:UnwatchProperty(property)
+					local connection = nil
+					pcall(function() connection = Inspector.Instance:GetPropertyChangedSignal(property):Connect(render) end)
+					if connection then Inspector.Watches[property] = connection end
+					return connection
+				end
+				function Inspector:UnwatchProperty(property)
+					local connection = Inspector.Watches[property]
+					if connection and connection.Disconnect then pcall(function() connection:Disconnect() end) end
+					Inspector.Watches[property] = nil
+					return Inspector
+				end
+				function Inspector:GetWatchedProperties()
+					local list = {}
+					for property in pairs(Inspector.Watches) do table.insert(list, property) end
+					return list
+				end
+				local control = _universalControl(Inspector, opts)
+				control:Own(function() for property, connection in pairs(Inspector.Watches) do if connection and connection.Disconnect then pcall(function() connection:Disconnect() end) end end end)
+				render(); addTooltip(Inspector.frame, opts.tooltip)
+				return control
+			end
+		end)()
+
 		-- ── ADVANCED LAYOUT HELPERS ─────────────────────────────────────────────
 		local function makeProxyParent(parent)
 			local Proxy = { _scroll = parent }
@@ -11066,7 +12013,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				"MoneyDisplay", "BalanceDisplay", "CashDisplay", "CurrencyDisplay", "ProfitDisplay", "Profit",
 				"TransactionList", "Transactions", "StatGrid", "StatsGrid", "SessionStats", "GoalProgress", "MoneyGoal", "Goal",
 				"Counter", "NumberInput", "PercentageDisplay", "PercentDisplay", "TimerDisplay", "Stopwatch", "Countdown",
-				"ActivityLog", "SessionLog", "MiniChart", "Chart", "Sparkline"
+				"ActivityLog", "SessionLog", "MiniChart", "Chart", "Sparkline", "DataTable", "InventoryGrid", "Form", "SessionTracker", "VirtualList", "InstanceInspector"
 			}
 			for _, aliasName in ipairs(Library.ComponentAliasNames or {}) do table.insert(names, aliasName) end
 			for _, factoryName in ipairs(Library.ComponentFactoryNames or {}) do table.insert(names, factoryName) end
