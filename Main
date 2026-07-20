@@ -18,11 +18,11 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.99.3-data-automation-pack"
+Library.Version = "5.99.3.1-smooth-slider-engine"
 Library.Product = "MenuXD"
-Library.BuildId = "5.99.3.20260719.eb645cd919"
-Library.BuildTimestamp = "2026-07-20T01:15:38.898337Z"
-Library.SourceHash = "eb645cd91994e11644bddd65db303344113734f879040eb3b56ac1b8d66891e0"
+Library.BuildId = "5.99.3.1.20260720.6d87d84a4d"
+Library.BuildTimestamp = "2026-07-20T05:15:52.915615Z"
+Library.SourceHash = "6d87d84a4d683c271cd3061efa57c19da443e9b41a162d0c96d2f26231c2bc42"
 Library.SourceHashMode = "normalized-sha256"
 Library.ReleaseChannel = "stable"
 
@@ -8506,6 +8506,94 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			_registerReconnectControl(Toggle, opts, "toggle")
 			return _universalControl(Toggle, opts)
 		end
+
+		-- One lightweight drag engine for every slider in this window.
+		-- This follows the UI Scale slider model: visual movement is frame-synced,
+		-- callbacks are coalesced, and raw input never passes through diagnostics.
+		local _smoothSliderRouter = GUI._smoothSliderRouter
+		if not _smoothSliderRouter then
+			_smoothSliderRouter = {active=nil}
+			GUI._smoothSliderRouter = _smoothSliderRouter
+
+			function _smoothSliderRouter:Finish(reason)
+				local active = self.active
+				if not active then return false end
+				self.active = nil
+				if type(active.finish) == "function" then
+					pcall(active.finish, tostring(reason or "finished"))
+				end
+				return true
+			end
+
+			function _smoothSliderRouter:Detach(slider)
+				if self.active and self.active.slider == slider then
+					self.active = nil
+					return true
+				end
+				return false
+			end
+
+			function _smoothSliderRouter:Cancel(slider, reason)
+				if self.active and self.active.slider == slider then
+					return self:Finish(reason or "cancelled")
+				end
+				return false
+			end
+
+			function _smoothSliderRouter:Begin(slider, input, updateCallback, finishCallback)
+				if self.active and self.active.slider ~= slider then
+					self:Finish("replaced")
+				end
+				local position = input and input.Position
+				self.active = {
+					slider = slider,
+					touchInput = input and input.UserInputType == Enum.UserInputType.Touch and input or nil,
+					lastX = position and position.X or nil,
+					renderedX = nil,
+					update = updateCallback,
+					finish = finishCallback,
+				}
+				return self.active
+			end
+
+			GUI:TrackOwnedConnection("input", UIS.InputChanged:Connect(function(input)
+				local active = _smoothSliderRouter.active
+				if not active then return end
+				if active.touchInput then
+					if input == active.touchInput and input.Position then
+						active.lastX = input.Position.X
+					end
+				elseif input.UserInputType == Enum.UserInputType.MouseMovement and input.Position then
+					active.lastX = input.Position.X
+				end
+			end))
+
+			GUI:TrackOwnedConnection("input", UIS.InputEnded:Connect(function(input)
+				local active = _smoothSliderRouter.active
+				if not active then return end
+				if active.touchInput then
+					if input == active.touchInput then _smoothSliderRouter:Finish("input-ended") end
+				elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+					_smoothSliderRouter:Finish("input-ended")
+				end
+			end))
+
+			GUI:TrackOwnedConnection("input", RunService.RenderStepped:Connect(function()
+				local active = _smoothSliderRouter.active
+				if not active then return end
+				local slider = active.slider
+				if not slider or slider.Disabled or slider.Dragging ~= true then
+					_smoothSliderRouter:Finish("inactive")
+					return
+				end
+				local x = active.lastX
+				if x ~= nil and x ~= active.renderedX then
+					active.renderedX = x
+					if type(active.update) == "function" then pcall(active.update, x) end
+				end
+			end))
+		end
+
 		function Tab:Slider(opts)
 			opts=validate({
 				name="Slider", description="", tooltip="",
@@ -8514,14 +8602,18 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				color=nil, valueColor=nil,
 				showRange=true, compact=false, valueFormatter=nil,
 				callback=function()end,
-				-- v5.53: smooth visuals update every frame while dragging.
-				-- Callbacks now apply live while dragging + once on drop, but are coalesced/throttled
-				-- so heavy callbacks do not stack and destroy FPS.
+				-- v5.99.3.1: all sliders use the same frame-synced engine as UI Scale.
+				-- Visuals stay responsive even when the supplied callback is expensive.
 				callbackThrottle=0.055,
 				liveCallback=true,
 				callbackOnDrag=true,
 				callbackOnDrop=true,
 				applyOnDrop=true,
+				adaptiveCallback=true,
+				callbackBudgetMultiplier=1.35,
+				maxCallbackThrottle=0.25,
+				deferPillResize=true,
+				smooth=true,
 				-- v5.64: mouse wheel no longer changes sliders by default.
 				-- Scrolling should scroll the page, not accidentally edit values.
 				wheel=false,
@@ -8593,62 +8685,108 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				_dragLastX=nil,
 				_callbackPendingValue=nil,
 				_callbackRunning=false,
+				_callbackScheduled=false,
+				_callbackForcePending=false,
+				_callbackCancelled=false,
+				_callbackDurationMs=0,
+				_adaptiveCallbackThrottle=nil,
 				_lastCallbackValue=nil,
 				_lastDisplayText=nil,
 				_lastValuePillWidth=nil,
+				_pillResizePending=false,
 				_lastAlpha=nil,
 			}
 
-			-- v5.53 slider fix:
-			-- No always-on UIS connections per slider. Drag listeners/render loop only exist while dragging.
-			-- Visuals update once per RenderStepped frame. Callbacks apply live while dragging
-			-- and again on drop, but are coalesced so heavy callbacks cannot stack up.
-			local callbackThrottle = math.max(0.025, tonumber(opts.callbackThrottle or opts.throttle or 0.055) or 0.055)
+			-- Smooth callback engine:
+			-- one newest value is retained, no callback backlog is allowed, and expensive
+			-- callbacks automatically receive a larger interval while visual drag stays 60 FPS.
+			local baseCallbackThrottle = math.max(0.016, tonumber(opts.callbackThrottle or opts.throttle or 0.055) or 0.055)
+			local maxCallbackThrottle = math.max(baseCallbackThrottle, tonumber(opts.maxCallbackThrottle) or 0.25)
+			local callbackBudgetMultiplier = math.max(1, tonumber(opts.callbackBudgetMultiplier) or 1.35)
+			local adaptiveCallback = opts.adaptiveCallback ~= false
 			local liveCallback = not (opts.liveCallback == false or opts.callbackOnDrag == false)
 			local callbackOnDrop = not (opts.callbackOnDrop == false or opts.applyOnDrop == false)
 			local lastCallbackAt = 0
 
+			local function callbackInterval()
+				return math.max(baseCallbackThrottle, tonumber(Slider._adaptiveCallbackThrottle) or 0)
+			end
+
 			local function _flushSliderCallback(force) end
+
+			local function scheduleSliderCallback(force)
+				if Slider._callbackCancelled then return end
+				if force then Slider._callbackForcePending = true end
+				if Slider._callbackScheduled then return end
+				Slider._callbackScheduled = true
+				local elapsed = os.clock() - lastCallbackAt
+				local delayTime = math.max(0, callbackInterval() - elapsed)
+				task.delay(delayTime, function()
+					Slider._callbackScheduled = false
+					if Slider._callbackCancelled then return end
+					local forceNow = Slider._callbackForcePending == true
+					_flushSliderCallback(forceNow)
+				end)
+			end
 
 			local function _runSliderCallback(value)
 				Slider._callbackRunning = true
-				task.defer(function()
+				lastCallbackAt = os.clock()
+				task.spawn(function()
+					local started = os.clock()
 					_safeCall("slider callback", opts.callback, value)
+					local duration = math.max(0, os.clock() - started)
+					Slider._callbackDurationMs = duration * 1000
+					if adaptiveCallback then
+						Slider._adaptiveCallbackThrottle = math.clamp(duration * callbackBudgetMultiplier, baseCallbackThrottle, maxCallbackThrottle)
+					else
+						Slider._adaptiveCallbackThrottle = baseCallbackThrottle
+					end
 					Slider._callbackRunning = false
-					-- If a heavy callback was still running while the user kept dragging, run only the newest queued value.
-					if Slider._callbackPendingValue ~= nil and Slider.Dragging and liveCallback then
-						_flushSliderCallback(false)
+					if Slider._callbackPendingValue ~= nil and not Slider._callbackCancelled then
+						_flushSliderCallback(Slider._callbackForcePending == true)
 					end
 				end)
 			end
 
 			function _flushSliderCallback(force)
-				if type(opts.callback) ~= "function" then Slider._callbackPendingValue = nil; return end
-				local value = snap(Slider._callbackPendingValue ~= nil and Slider._callbackPendingValue or Slider.Value)
-				if not force then
-					local now = os.clock()
-					if callbackThrottle > 0 and (now - lastCallbackAt) < callbackThrottle then return end
-				end
-				if not force and Slider._lastCallbackValue == value then
+				if Slider._callbackCancelled then return end
+				if type(opts.callback) ~= "function" then
 					Slider._callbackPendingValue = nil
+					Slider._callbackForcePending = false
 					return
 				end
+				local value = snap(Slider._callbackPendingValue ~= nil and Slider._callbackPendingValue or Slider.Value)
+				local elapsed = os.clock() - lastCallbackAt
 				if Slider._callbackRunning then
 					Slider._callbackPendingValue = value
+					if force then Slider._callbackForcePending = true end
+					return
+				end
+				if elapsed < callbackInterval() then
+					Slider._callbackPendingValue = value
+					scheduleSliderCallback(force)
+					return
+				end
+				-- Do not repeat the exact same final value after an identical live callback.
+				if Slider._lastCallbackValue == value then
+					Slider._callbackPendingValue = nil
+					Slider._callbackForcePending = false
 					return
 				end
 				Slider._callbackPendingValue = nil
+				Slider._callbackForcePending = false
 				Slider._lastCallbackValue = value
-				lastCallbackAt = os.clock()
 				_runSliderCallback(value)
 			end
 
 			local function fireSliderCallback(value, force)
-				if type(opts.callback) ~= "function" then return end
+				if type(opts.callback) ~= "function" or Slider._callbackCancelled then return end
 				value = snap(value)
 				if Slider.Dragging and not force and not liveCallback then return end
 				if not Slider.Dragging and not force then return end
 				Slider._callbackPendingValue = value
+				if force then Slider._callbackForcePending = true end
 				_flushSliderCallback(force == true)
 			end
 
@@ -8757,10 +8895,17 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				if force or txt ~= Slider._lastDisplayText then
 					Slider._lastDisplayText = txt
 					vl.Text = txt
-					local w=math.clamp(clampTextWidth(txt,11,64,174)+28,82,184)
-					if force or w ~= Slider._lastValuePillWidth then
-						Slider._lastValuePillWidth = w
-						valuePill.Size=UDim2.new(0,w,0,24)
+					-- Text measurement is one of the most expensive slider operations.
+					-- Keep the pill width stable while dragging, then resize once on release.
+					if opts.deferPillResize ~= false and Slider.Dragging and not force then
+						Slider._pillResizePending = true
+					else
+						local w=math.clamp(clampTextWidth(txt,11,64,174)+28,82,184)
+						if force or w ~= Slider._lastValuePillWidth then
+							Slider._lastValuePillWidth = w
+							valuePill.Size=UDim2.new(0,w,0,24)
+						end
+						Slider._pillResizePending = false
 					end
 				end
 			end
@@ -8834,13 +8979,16 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				end
 			end
 
-			local function finishDrag()
+			local function finishDrag(fromRouter, applyFinal)
 				if not Slider.Dragging then return end
+				if not fromRouter then _smoothSliderRouter:Detach(Slider) end
 				Slider.Dragging=false
 				cleanupDragConnections()
 				setDragVisual(false)
+				-- Resize the value pill only once after drag completion.
+				if Slider._pillResizePending then setVisual(Slider.Value, true) end
 				if Slider._dragChanged then
-					if callbackOnDrop then fireSliderCallback(Slider.Value, true) end
+					if applyFinal ~= false and callbackOnDrop then fireSliderCallback(Slider.Value, true) end
 					pcall(function() GUI:MarkConfigDirty() end)
 				end
 				Slider._dragChanged=false
@@ -8850,6 +8998,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			local function beginDrag(i, preserveThumbValue)
 				if Slider.Disabled or locked then setVisual(Slider.Value, true); return end
 				cleanupDragConnections()
+				Slider._callbackCancelled=false
 				Slider.Dragging=true
 				Slider._dragChanged=false
 				Slider._dragStartValue=Slider.Value
@@ -8857,29 +9006,17 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				if not preserveThumbValue and Slider._dragLastX then render(valueFromX(Slider._dragLastX), false) end
 				setDragVisual(true)
 
-				-- Coalesce mouse/touch spam into one visual update per frame. This keeps
-				-- the thumb smooth while avoiding dozens of property writes per input burst.
-				local renderConn = RunService.RenderStepped:Connect(function()
+				_smoothSliderRouter:Begin(Slider, i, function(x)
 					if not Slider.Dragging then return end
-					local x = Slider._dragLastX
-					if x then render(valueFromX(x), false) end
+					Slider._dragLastX = x
+					render(valueFromX(x), false)
+				end, function(reason)
+					local allowFinal = reason ~= "destroyed" and reason ~= "inactive"
+					if Slider._dragLastX and allowFinal then
+						render(valueFromX(Slider._dragLastX), false, true)
+					end
+					finishDrag(true, allowFinal)
 				end)
-				local dragId = "slider:" .. tostring(Slider)
-				local moveConn = GUI:_registerInputHandler("changed", dragId, function(input)
-					if not Slider.Dragging then return end
-					if input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch then
-						Slider._dragLastX=input.Position.X
-					end
-				end, "slider")
-				local endConn = GUI:_registerInputHandler("ended", dragId .. ":end", function(input)
-					if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
-						if Slider._dragLastX then render(valueFromX(Slider._dragLastX), false, true) end
-						finishDrag()
-					end
-				end, "slider")
-				table.insert(Slider._dragConns, renderConn)
-				table.insert(Slider._dragConns, moveConn)
-				table.insert(Slider._dragConns, endConn)
 			end
 
 			local function stepAmount(mult)
@@ -8939,6 +9076,9 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 			Slider.frame.AncestryChanged:Connect(function()
 				if not Slider.frame:IsDescendantOf(game) then
+					Slider._callbackCancelled=true
+					Slider._callbackPendingValue=nil
+					_smoothSliderRouter:Cancel(Slider, "destroyed")
 					Slider.Dragging=false
 					cleanupDragConnections()
 				end
@@ -9012,8 +9152,37 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			function Slider:GetWheelEnabled()
 				return wheelConn ~= nil
 			end
+			function Slider:SetCallbackThrottle(seconds)
+				baseCallbackThrottle = math.max(0.016, tonumber(seconds) or baseCallbackThrottle)
+				return Slider
+			end
+			function Slider:GetCallbackThrottle()
+				return callbackInterval()
+			end
+			function Slider:SetAdaptiveCallback(state)
+				adaptiveCallback = state ~= false
+				if not adaptiveCallback then Slider._adaptiveCallbackThrottle = baseCallbackThrottle end
+				return Slider
+			end
+			function Slider:SetLiveCallback(state)
+				liveCallback = state ~= false
+				return Slider
+			end
+			function Slider:GetPerformanceStats()
+				return {
+					dragging = Slider.Dragging == true,
+					callbackRunning = Slider._callbackRunning == true,
+					callbackPending = Slider._callbackPendingValue ~= nil,
+					callbackDurationMs = tonumber(Slider._callbackDurationMs) or 0,
+					callbackThrottle = callbackInterval(),
+					adaptiveCallback = adaptiveCallback == true,
+				}
+			end
 			function Slider:_stopForDestroy()
-				finishDrag()
+				Slider._callbackCancelled=true
+				Slider._callbackPendingValue=nil
+				_smoothSliderRouter:Cancel(Slider, "destroyed")
+				finishDrag(false, false)
 				cleanupDragConnections()
 				setWheelEnabled(false)
 			end
