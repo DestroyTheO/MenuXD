@@ -18,11 +18,11 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.99.3.1-smooth-slider-engine"
+Library.Version = "5.99.3.2-fresh-reexecution"
 Library.Product = "MenuXD"
-Library.BuildId = "5.99.3.1.20260720.6d87d84a4d"
-Library.BuildTimestamp = "2026-07-20T05:15:52.915615Z"
-Library.SourceHash = "6d87d84a4d683c271cd3061efa57c19da443e9b41a162d0c96d2f26231c2bc42"
+Library.BuildId = "5.99.3.2.20260720.0d114899fe"
+Library.BuildTimestamp = "2026-07-20T05:25:25.016771Z"
+Library.SourceHash = "0d114899fe88c5cf81222240bb6caec8426863641a13fea9bc54ab3e9d669483"
 Library.SourceHashMode = "normalized-sha256"
 Library.ReleaseChannel = "stable"
 
@@ -2459,12 +2459,15 @@ function Library:new(options)
 		reuseExisting    = true,  -- allows respawn-only duplicate absorption
 		reuseExistingMode = "respawn", -- "respawn" (default), "always", or "never"
 		replaceExistingOnExecute = true, -- normal re-execution replaces the old UI
-		atomicReplace    = true,  -- build the new UI hidden before closing the old UI
-		preserveState    = true,  -- transfer window/config/control state during replacement
-		hotReloadCallbacks = false, -- do not replay gameplay callbacks while transferring state
-		hotReloadKeepOldOnError = true, -- failed staging builds leave the old UI untouched
-		hotReloadTransferSelectedTab = true,
-		hotReloadTransferPosition = true,
+		freshReplace     = true,  -- same-library re-execution fully destroys the old MenuXD first
+		atomicReplace    = false, -- fresh replacement does not keep the old UI alive while building
+		preserveState    = false, -- live controls/functions are never copied into the new execution
+		hotReloadCallbacks = false, -- gameplay callbacks are never replayed from the replaced UI
+		hotReloadKeepOldOnError = false, -- the requested fresh replacement does not restore the old UI
+		hotReloadTransferSelectedTab = false,
+		hotReloadTransferPosition = false,
+		startPosition    = nil, -- nil starts centered; accepts a UDim2 for an explicit fresh position
+		profileRestoresWindowPosition = false, -- profiles restore values, not the replaced window position
 		compatibilityMode = "auto", -- auto, safe, strict, or off
 		strictCompatibility = false,
 		controlErrorIsolation = true, -- one failed component will not stop the rest of the UI
@@ -2576,10 +2579,20 @@ function Library:new(options)
 	end
 	if options.accent then Library.Theme.Accent=options.accent end
 
+	local _freshReplacePolicy = options.freshReplace ~= false
+	if _freshReplacePolicy then
+		options.atomicReplace = false
+		options.preserveState = false
+		options.hotReloadCallbacks = false
+		options.hotReloadKeepOldOnError = false
+		options.hotReloadTransferSelectedTab = false
+		options.hotReloadTransferPosition = false
+	end
+
 	-- Re-execution policy:
-	--   • Normal execution uses an atomic hidden staging window by default.
-	--   • The old window remains active until the new constructor finishes.
-	--   • A failed staging build leaves the old UI alive.
+	--   • Normal same-library execution hard-closes the previous MenuXD first.
+	--   • No control values, callbacks, selected tab, minimized state, or position transfer.
+	--   • Saved profiles are the only startup state-restoration path.
 	--   • One immediate respawn builder pass may still be absorbed.
 	local _activeWindow = _runtimeRoot.activeWindow
 	local _activeScreenGui = _runtimeRoot.activeScreenGui
@@ -2639,7 +2652,8 @@ function Library:new(options)
 
 	local _replacementOldWindow = _activeAlive and _activeWindow or nil
 	local _replacementOldScreenGui = _activeAlive and _activeScreenGui or nil
-	local _atomicStaging = _activeAlive
+	local _atomicStaging = (not _freshReplacePolicy)
+		and _activeAlive
 		and options.replaceExistingOnExecute ~= false
 		and options.atomicReplace ~= false
 	local _replacementState = nil
@@ -2670,18 +2684,43 @@ function Library:new(options)
 	end
 
 	if _replacementOldWindow then
-		_replacementState = _captureWindowState(_replacementOldWindow)
-		if _atomicStaging then
-			_runtimeRoot.lastBuilderAction = "building-staging"
-		else
-			_runtimeRoot.lastBuilderAction = "replacing-existing"
+		if _freshReplacePolicy then
+			_runtimeRoot.lastBuilderAction = "fresh-replacing-existing"
+			-- Stop all MenuXD-managed work and destroy the complete old ScreenGui
+			-- before any part of the new window is constructed.
+			local hardClose = _replacementOldWindow.HardClose or _replacementOldWindow.Destroy
+			if type(hardClose) == "function" then
+				pcall(hardClose, _replacementOldWindow, "fresh-same-library-reexecution")
+			end
 			destroyExistingVenturaGUI()
+			_runtimeRoot.activeWindow = nil
+			_runtimeRoot.activeScreenGui = nil
+			_runtimeRoot.activeCharacter = nil
+			_runtimeRoot.windowPosition = nil
+			_runtimeRoot.lastHotReloadError = nil
+			_runtimeRoot.pendingStaging = nil
+			_runtimeRoot.pendingStagingCleanup = nil
+			_globalUIRoot.activeWindow = nil
+			_globalUIRoot.activeScreenGui = nil
+			_globalUIRoot.activeOwner = nil
 			_replacementOldWindow = nil
 			_replacementOldScreenGui = nil
+			_replacementState = nil
+		else
+			_replacementState = _captureWindowState(_replacementOldWindow)
+			if _atomicStaging then
+				_runtimeRoot.lastBuilderAction = "building-staging"
+			else
+				_runtimeRoot.lastBuilderAction = "replacing-existing"
+				destroyExistingVenturaGUI()
+				_replacementOldWindow = nil
+				_replacementOldScreenGui = nil
+			end
 		end
 	else
 		_runtimeRoot.lastBuilderAction = "created-new"
 		destroyExistingVenturaGUI()
+		if _freshReplacePolicy then _runtimeRoot.windowPosition = nil end
 	end
 
 	local keys            = {toggle=_safeEnumKey(options.toggleKey, Enum.KeyCode.Insert)}
@@ -4562,7 +4601,10 @@ local _defaultWinW, _defaultWinH = winW, winH
 	Main.BackgroundColor3=Library.Theme.Background
 	Main.AnchorPoint=Vector2.new(0.5,0.5)
 	Main.Size=UDim2.new(0,winW,0,0)
-	Main.Position = (_runtimeRoot.windowPosition and typeof(_runtimeRoot.windowPosition) == "UDim2") and _runtimeRoot.windowPosition or UDim2.fromScale(0.5,0.5)
+	local _requestedStartPosition = typeof(options.startPosition) == "UDim2" and options.startPosition or UDim2.fromScale(0.5,0.5)
+	Main.Position = (not _freshReplacePolicy and _runtimeRoot.windowPosition and typeof(_runtimeRoot.windowPosition) == "UDim2")
+		and _runtimeRoot.windowPosition
+		or _requestedStartPosition
 	_runtimeRoot.windowPosition = Main.Position
 	Main.ClipsDescendants=true; Main.Visible=false
 	corner(Main,8)
@@ -15113,12 +15155,14 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	function GUI:ApplyConfig(data, fireCallbacks)
 		if type(data) ~= "table" then return false end
 		data = select(1, GUI:MigrateConfig(data))
-		if options.normalizedPosition ~= false and tonumber(data.windowNormX) and tonumber(data.windowNormY) then
-			GUI:SetNormalizedPosition(data.windowNormX, data.windowNormY)
-		elseif tonumber(data.windowX) and tonumber(data.windowY) then
-			local restored = UDim2.new(tonumber(data.windowScaleX) or 0, tonumber(data.windowX) or 0, tonumber(data.windowScaleY) or 0, tonumber(data.windowY) or 0)
-			MainWrap.Position = restored
-			_runtimeRoot.windowPosition = restored
+		if options.profileRestoresWindowPosition == true then
+			if options.normalizedPosition ~= false and tonumber(data.windowNormX) and tonumber(data.windowNormY) then
+				GUI:SetNormalizedPosition(data.windowNormX, data.windowNormY)
+			elseif tonumber(data.windowX) and tonumber(data.windowY) then
+				local restored = UDim2.new(tonumber(data.windowScaleX) or 0, tonumber(data.windowX) or 0, tonumber(data.windowScaleY) or 0, tonumber(data.windowY) or 0)
+				MainWrap.Position = restored
+				_runtimeRoot.windowPosition = restored
+			end
 		end
 		if data.watermarkRuntimeLabel ~= nil then data.watermarkRuntimeLabel = tostring(data.watermarkRuntimeLabel) end
 		local previous = {}
@@ -15507,8 +15551,16 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	end
 	if GUI._autoSaveEnabled then GUI:SetAutoSave(true, GUI._autoSaveInterval) end
 
-	GUI._startupLoadedConfig = GUI:LoadConfig()
+	local _startupProfileRequested = V._explicitProfileProvided == true
+		or _readAutoLoadEnabled() == true
+		or options.autoLoad == true
+		or options.autoLoadConfig == true
+		or options.configAutoLoad == true
+	GUI._startupLoadedConfig = _startupProfileRequested and GUI:LoadConfig() or nil
 	GUI._loadedConfigData = GUI._startupLoadedConfig
+	GUI._startupProfileSource = V._explicitProfileProvided == true and "explicit-profile"
+		or (_readAutoLoadEnabled() == true and "auto-load-profile")
+		or nil
 	if GUI._startupLoadedConfig then
 		GUI:ApplyConfig(GUI._startupLoadedConfig)
 	elseif options.theme and Library.Themes[options.theme] then
@@ -16782,11 +16834,23 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 	function GUI:GetGlobalCleanupReport()
 		return _globalUIRoot.lastCleanupReport
 	end
+	function GUI:GetReexecutionPolicy()
+		return {
+			freshReplace = _freshReplacePolicy == true,
+			preserveState = options.preserveState == true,
+			atomicReplace = options.atomicReplace == true,
+			transferPosition = options.hotReloadTransferPosition == true,
+			transferSelectedTab = options.hotReloadTransferSelectedTab == true,
+			profileRestoresWindowPosition = options.profileRestoresWindowPosition == true,
+			startupProfileSource = GUI._startupProfileSource,
+			lastBuilderAction = _runtimeRoot.lastBuilderAction,
+		}
+	end
 
 	local function _commitWindowBuild()
-		if _atomicStaging then
+		if _atomicStaging and not _freshReplacePolicy then
 			local transferOK, transferResult, transferError = pcall(function()
-				if _replacementState and options.preserveState ~= false then
+				if _replacementState and options.preserveState == true then
 					local ok, err = GUI:ImportHotReloadState(_replacementState, options.hotReloadCallbacks == true)
 					if ok == false then error(err or "state transfer failed") end
 				end
@@ -17119,7 +17183,7 @@ function Library:RunReexecuteTest(options)
 end
 
 function Library:SelfTest()
-	local stabilityFeatures = {"build-fingerprint","cache-diagnostics","compatibility-report","safe-create-fallback","control-error-isolation","cleanup-verification","config-checksum","config-last-good","atomic-hot-reload","state-transfer","owned-cleanup","single-input-dispatcher","callback-recovery","control-registry","reactive-values","lazy-builders","cancellation-tokens","minimal-mode","performance-mode","normalized-position","reexecute-self-test","same-library-cleanup","tracked-thread-cancellation"}
+	local stabilityFeatures = {"build-fingerprint","cache-diagnostics","compatibility-report","safe-create-fallback","control-error-isolation","cleanup-verification","config-checksum","config-last-good","atomic-hot-reload","state-transfer","owned-cleanup","single-input-dispatcher","callback-recovery","control-registry","reactive-values","lazy-builders","cancellation-tokens","minimal-mode","performance-mode","normalized-position","reexecute-self-test","same-library-cleanup","fresh-reexecution","no-live-state-transfer","fresh-window-position","tracked-thread-cancellation"}
 	local guiParentName = "unknown"
 	pcall(function()
 		local parent = getScreenGuiParent()
