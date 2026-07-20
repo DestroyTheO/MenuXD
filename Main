@@ -18,11 +18,11 @@ local TI_SLOW = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.
 local MOBILE  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
 local Library = {}
-Library.Version = "5.99.3.2-fresh-reexecution"
+Library.Version = "5.99.4-advanced-theme-engine"
 Library.Product = "MenuXD"
-Library.BuildId = "5.99.3.2.20260720.0d114899fe"
-Library.BuildTimestamp = "2026-07-20T05:25:25.016771Z"
-Library.SourceHash = "0d114899fe88c5cf81222240bb6caec8426863641a13fea9bc54ab3e9d669483"
+Library.BuildId = "5.99.4.20260720.62edae893a"
+Library.BuildTimestamp = "2026-07-20T06:31:00.745805Z"
+Library.SourceHash = "62edae893aeed0bcebbaddb4d6e48d3fb9f01bfdd1ff472740e892dc82b93bf7"
 Library.SourceHashMode = "normalized-sha256"
 Library.ReleaseChannel = "stable"
 
@@ -596,6 +596,19 @@ Library.Theme = {
 	TextPrimary   = Color3.fromRGB(220, 220, 220),
 	TextSecondary = Color3.fromRGB(130, 130, 130),
 	TextDisabled  = Color3.fromRGB(75, 75, 75),
+	TextOnAccent  = Color3.fromRGB(255, 255, 255),
+	AccentHover   = Color3.fromRGB(125, 170, 255),
+	AccentPressed = Color3.fromRGB(78, 125, 220),
+	Input         = Color3.fromRGB(24, 24, 24),
+	Card          = Color3.fromRGB(28, 28, 28),
+	Positive      = Color3.fromRGB(80, 220, 135),
+	Negative      = Color3.fromRGB(255, 88, 105),
+	Warning       = Color3.fromRGB(255, 195, 85),
+	Info          = Color3.fromRGB(90, 165, 255),
+	Focus         = Color3.fromRGB(125, 170, 255),
+	Selection     = Color3.fromRGB(74, 104, 160),
+	Overlay       = Color3.fromRGB(0, 0, 0),
+	OverlayTransparency = 0.35,
 }
 
 Library.Accents = {
@@ -2029,6 +2042,130 @@ do
 	end
 end
 
+
+-- ══════════════════════════════════════════════════════════════════════
+-- v5.99.4 POLISHED THEME COLLECTION
+-- Static, low-overhead presets designed around the semantic token engine.
+-- ══════════════════════════════════════════════════════════════════════
+Library.ThemeTokens = {
+	"Background", "Surface", "SurfaceHover", "Nav", "Topbar", "UserBox",
+	"Input", "Card", "Border", "BorderHover", "Accent", "AccentHover",
+	"AccentPressed", "Focus", "Selection", "TextPrimary", "TextSecondary",
+	"TextDisabled", "TextOnAccent", "Positive", "Negative", "Warning", "Info",
+	"Overlay", "OverlayTransparency",
+}
+
+Library.Themes["Crimson Glass"] = {
+	Category="Polished", DesignStyle="glass", Animated=false, Stars=false, SmartContrast=true, AutoTextContrast=false,
+	Background=Color3.fromRGB(11,10,14), Surface=Color3.fromRGB(22,18,23), SurfaceHover=Color3.fromRGB(34,25,29),
+	Nav=Color3.fromRGB(8,7,10), Topbar=Color3.fromRGB(7,6,9), UserBox=Color3.fromRGB(18,13,17),
+	Input=Color3.fromRGB(16,13,17), Card=Color3.fromRGB(24,18,23), Border=Color3.fromRGB(54,37,44), BorderHover=Color3.fromRGB(118,59,74),
+	Accent=Color3.fromRGB(226,55,82), AccentHover=Color3.fromRGB(247,79,103), AccentPressed=Color3.fromRGB(178,38,61),
+	TextPrimary=Color3.fromRGB(248,242,245), TextSecondary=Color3.fromRGB(176,148,158), TextDisabled=Color3.fromRGB(102,78,87), TextOnAccent=Color3.fromRGB(255,255,255),
+	Positive=Color3.fromRGB(77,220,137), Negative=Color3.fromRGB(255,80,104), Warning=Color3.fromRGB(255,190,76), Info=Color3.fromRGB(100,165,255),
+	Transparency={Main=0.02, Background=0.10, Surface=0.16, Nav=0.13, Topbar=0.15, UserBox=0.12, Input=0.08, Card=0.13, Overlay=0.90},
+}
+Library.Themes["Midnight Purple"] = {
+	Category="Polished", DesignStyle="minimal", Animated=false, Stars=false, SmartContrast=true, AutoTextContrast=false,
+	Background=Color3.fromRGB(10,9,20), Surface=Color3.fromRGB(20,17,36), SurfaceHover=Color3.fromRGB(32,27,54),
+	Nav=Color3.fromRGB(7,6,15), Topbar=Color3.fromRGB(6,5,13), UserBox=Color3.fromRGB(16,13,29),
+	Input=Color3.fromRGB(14,12,26), Card=Color3.fromRGB(22,18,39), Border=Color3.fromRGB(50,42,78), BorderHover=Color3.fromRGB(108,82,166),
+	Accent=Color3.fromRGB(153,96,255), AccentHover=Color3.fromRGB(179,127,255), AccentPressed=Color3.fromRGB(118,68,216),
+	TextPrimary=Color3.fromRGB(244,240,255), TextSecondary=Color3.fromRGB(170,154,207), TextDisabled=Color3.fromRGB(93,82,123), TextOnAccent=Color3.fromRGB(255,255,255),
+	Positive=Color3.fromRGB(82,224,147), Negative=Color3.fromRGB(255,91,117), Warning=Color3.fromRGB(255,198,91), Info=Color3.fromRGB(112,176,255),
+}
+Library.Themes["Ocean Blue"] = {
+	Category="Polished", DesignStyle="minimal", Animated=false, Stars=false, SmartContrast=true, AutoTextContrast=false,
+	Background=Color3.fromRGB(6,15,25), Surface=Color3.fromRGB(10,28,44), SurfaceHover=Color3.fromRGB(17,45,67),
+	Nav=Color3.fromRGB(4,11,19), Topbar=Color3.fromRGB(3,9,16), UserBox=Color3.fromRGB(8,22,35),
+	Input=Color3.fromRGB(7,21,34), Card=Color3.fromRGB(11,31,48), Border=Color3.fromRGB(29,69,96), BorderHover=Color3.fromRGB(57,133,176),
+	Accent=Color3.fromRGB(51,170,255), AccentHover=Color3.fromRGB(88,190,255), AccentPressed=Color3.fromRGB(35,126,205),
+	TextPrimary=Color3.fromRGB(235,249,255), TextSecondary=Color3.fromRGB(142,196,221), TextDisabled=Color3.fromRGB(76,117,139), TextOnAccent=Color3.fromRGB(5,20,31),
+	Positive=Color3.fromRGB(68,224,158), Negative=Color3.fromRGB(255,91,111), Warning=Color3.fromRGB(255,202,92), Info=Color3.fromRGB(80,184,255),
+}
+Library.Themes["Emerald Night"] = {
+	Category="Polished", DesignStyle="minimal", Animated=false, Stars=false, SmartContrast=true, AutoTextContrast=false,
+	Background=Color3.fromRGB(7,18,14), Surface=Color3.fromRGB(13,32,24), SurfaceHover=Color3.fromRGB(21,49,36),
+	Nav=Color3.fromRGB(5,13,10), Topbar=Color3.fromRGB(4,11,8), UserBox=Color3.fromRGB(10,25,19),
+	Input=Color3.fromRGB(9,24,18), Card=Color3.fromRGB(14,35,26), Border=Color3.fromRGB(34,76,57), BorderHover=Color3.fromRGB(61,139,101),
+	Accent=Color3.fromRGB(63,218,142), AccentHover=Color3.fromRGB(92,235,165), AccentPressed=Color3.fromRGB(43,166,105),
+	TextPrimary=Color3.fromRGB(236,255,247), TextSecondary=Color3.fromRGB(145,202,177), TextDisabled=Color3.fromRGB(77,121,101), TextOnAccent=Color3.fromRGB(4,29,18),
+	Positive=Color3.fromRGB(63,218,142), Negative=Color3.fromRGB(255,91,111), Warning=Color3.fromRGB(255,198,82), Info=Color3.fromRGB(81,177,255),
+}
+Library.Themes["Amber Terminal"] = {
+	Category="Polished", DesignStyle="terminal", Animated=false, Stars=false, SmartContrast=true, AutoTextContrast=false,
+	Background=Color3.fromRGB(13,11,6), Surface=Color3.fromRGB(25,21,10), SurfaceHover=Color3.fromRGB(40,33,15),
+	Nav=Color3.fromRGB(9,8,4), Topbar=Color3.fromRGB(8,6,3), UserBox=Color3.fromRGB(20,16,7),
+	Input=Color3.fromRGB(18,15,7), Card=Color3.fromRGB(28,23,10), Border=Color3.fromRGB(70,55,20), BorderHover=Color3.fromRGB(145,105,29),
+	Accent=Color3.fromRGB(255,184,54), AccentHover=Color3.fromRGB(255,205,91), AccentPressed=Color3.fromRGB(208,137,29),
+	TextPrimary=Color3.fromRGB(255,246,219), TextSecondary=Color3.fromRGB(211,179,111), TextDisabled=Color3.fromRGB(120,95,48), TextOnAccent=Color3.fromRGB(34,22,4),
+	Positive=Color3.fromRGB(115,220,111), Negative=Color3.fromRGB(255,92,88), Warning=Color3.fromRGB(255,184,54), Info=Color3.fromRGB(104,173,255),
+}
+Library.Themes["Monochrome"] = {
+	Category="Polished", DesignStyle="minimal", Animated=false, Stars=false, SmartContrast=true, AutoTextContrast=false,
+	Background=Color3.fromRGB(12,12,13), Surface=Color3.fromRGB(23,23,25), SurfaceHover=Color3.fromRGB(35,35,38),
+	Nav=Color3.fromRGB(8,8,9), Topbar=Color3.fromRGB(7,7,8), UserBox=Color3.fromRGB(18,18,20),
+	Input=Color3.fromRGB(17,17,19), Card=Color3.fromRGB(25,25,27), Border=Color3.fromRGB(54,54,60), BorderHover=Color3.fromRGB(104,104,116),
+	Accent=Color3.fromRGB(225,225,232), AccentHover=Color3.fromRGB(244,244,248), AccentPressed=Color3.fromRGB(181,181,191),
+	TextPrimary=Color3.fromRGB(242,242,246), TextSecondary=Color3.fromRGB(159,159,169), TextDisabled=Color3.fromRGB(91,91,101), TextOnAccent=Color3.fromRGB(18,18,20),
+	Positive=Color3.fromRGB(119,211,145), Negative=Color3.fromRGB(238,102,116), Warning=Color3.fromRGB(230,191,101), Info=Color3.fromRGB(139,176,226),
+}
+Library.Themes["Rose Quartz"] = {
+	Category="Polished", DesignStyle="glass", Animated=false, Stars=false, SmartContrast=true, AutoTextContrast=false,
+	Background=Color3.fromRGB(23,14,20), Surface=Color3.fromRGB(39,23,34), SurfaceHover=Color3.fromRGB(56,34,49),
+	Nav=Color3.fromRGB(17,10,15), Topbar=Color3.fromRGB(14,8,12), UserBox=Color3.fromRGB(31,18,27),
+	Input=Color3.fromRGB(29,17,25), Card=Color3.fromRGB(42,25,37), Border=Color3.fromRGB(84,51,72), BorderHover=Color3.fromRGB(153,88,128),
+	Accent=Color3.fromRGB(244,122,174), AccentHover=Color3.fromRGB(255,151,193), AccentPressed=Color3.fromRGB(196,83,136),
+	TextPrimary=Color3.fromRGB(255,242,249), TextSecondary=Color3.fromRGB(215,161,188), TextDisabled=Color3.fromRGB(124,88,105), TextOnAccent=Color3.fromRGB(51,15,32),
+	Positive=Color3.fromRGB(86,220,150), Negative=Color3.fromRGB(255,91,121), Warning=Color3.fromRGB(255,199,95), Info=Color3.fromRGB(117,174,255),
+	Transparency={Main=0.02, Background=0.08, Surface=0.14, Nav=0.11, Topbar=0.12, UserBox=0.10, Input=0.06, Card=0.11, Overlay=0.90},
+}
+Library.Themes["Arctic Light"] = {
+	Category="Polished", DesignStyle="light", Animated=false, Stars=false, SmartContrast=false, AutoTextContrast=false,
+	Background=Color3.fromRGB(232,239,247), Surface=Color3.fromRGB(248,251,255), SurfaceHover=Color3.fromRGB(222,232,244),
+	Nav=Color3.fromRGB(218,228,240), Topbar=Color3.fromRGB(207,220,235), UserBox=Color3.fromRGB(239,245,252),
+	Input=Color3.fromRGB(225,234,244), Card=Color3.fromRGB(247,250,254), Border=Color3.fromRGB(173,190,209), BorderHover=Color3.fromRGB(106,139,174),
+	Accent=Color3.fromRGB(42,135,221), AccentHover=Color3.fromRGB(67,154,229), AccentPressed=Color3.fromRGB(29,101,174),
+	TextPrimary=Color3.fromRGB(25,35,48), TextSecondary=Color3.fromRGB(70,88,108), TextDisabled=Color3.fromRGB(128,143,160), TextOnAccent=Color3.fromRGB(255,255,255),
+	Positive=Color3.fromRGB(31,157,99), Negative=Color3.fromRGB(210,54,76), Warning=Color3.fromRGB(194,125,20), Info=Color3.fromRGB(42,135,221),
+	Overlay=Color3.fromRGB(31,43,58), OverlayTransparency=0.56,
+}
+Library.Themes["OLED Black"] = {
+	Category="Polished", DesignStyle="minimal", Animated=false, Stars=false, SmartContrast=true, AutoTextContrast=false,
+	Background=Color3.fromRGB(0,0,0), Surface=Color3.fromRGB(8,8,10), SurfaceHover=Color3.fromRGB(18,18,21),
+	Nav=Color3.fromRGB(0,0,0), Topbar=Color3.fromRGB(0,0,0), UserBox=Color3.fromRGB(5,5,7),
+	Input=Color3.fromRGB(4,4,6), Card=Color3.fromRGB(9,9,11), Border=Color3.fromRGB(34,34,40), BorderHover=Color3.fromRGB(82,82,96),
+	Accent=Color3.fromRGB(114,156,255), AccentHover=Color3.fromRGB(143,179,255), AccentPressed=Color3.fromRGB(80,116,208),
+	TextPrimary=Color3.fromRGB(246,246,250), TextSecondary=Color3.fromRGB(151,151,163), TextDisabled=Color3.fromRGB(75,75,86), TextOnAccent=Color3.fromRGB(255,255,255),
+	Positive=Color3.fromRGB(66,224,139), Negative=Color3.fromRGB(255,75,100), Warning=Color3.fromRGB(255,190,73), Info=Color3.fromRGB(91,167,255),
+}
+Library.Themes["Cyber Neon"] = {
+	Category="Polished", DesignStyle="cyber", Animated=false, Stars=false, SmartContrast=true, AutoTextContrast=false,
+	Background=Color3.fromRGB(4,8,16), Surface=Color3.fromRGB(8,17,30), SurfaceHover=Color3.fromRGB(14,29,49),
+	Nav=Color3.fromRGB(2,6,12), Topbar=Color3.fromRGB(1,4,9), UserBox=Color3.fromRGB(6,13,23),
+	Input=Color3.fromRGB(5,13,24), Card=Color3.fromRGB(9,19,34), Border=Color3.fromRGB(27,65,86), BorderHover=Color3.fromRGB(58,191,218),
+	Accent=Color3.fromRGB(40,232,255), AccentHover=Color3.fromRGB(88,242,255), AccentPressed=Color3.fromRGB(20,174,204),
+	TextPrimary=Color3.fromRGB(230,253,255), TextSecondary=Color3.fromRGB(126,208,216), TextDisabled=Color3.fromRGB(62,119,128), TextOnAccent=Color3.fromRGB(1,24,29),
+	Positive=Color3.fromRGB(63,255,153), Negative=Color3.fromRGB(255,67,111), Warning=Color3.fromRGB(255,222,77), Info=Color3.fromRGB(77,164,255),
+}
+
+local function _cloneThemeDefinition(value, seen)
+	if type(value) ~= "table" then return value end
+	seen = seen or {}
+	if seen[value] then return seen[value] end
+	local copy = {}
+	seen[value] = copy
+	for key, item in pairs(value) do copy[_cloneThemeDefinition(key, seen)] = _cloneThemeDefinition(item, seen) end
+	return copy
+end
+
+Library.BuiltInThemeNames = Library.BuiltInThemeNames or {}
+Library.BuiltInThemeDefaults = Library.BuiltInThemeDefaults or {}
+for _name, _themeData in pairs(Library.Themes or {}) do
+	Library.BuiltInThemeNames[_name] = true
+	Library.BuiltInThemeDefaults[_name] = _cloneThemeDefinition(_themeData)
+end
+
 local function tw(obj, goal, ti, cb)
 	-- v5.38: tween guard. Roblox can error if a control is destroyed while an
 	-- animation is being created/played. Return a no-op tween so callers remain safe.
@@ -2468,6 +2605,7 @@ function Library:new(options)
 		hotReloadTransferPosition = false,
 		startPosition    = nil, -- nil starts centered; accepts a UDim2 for an explicit fresh position
 		profileRestoresWindowPosition = false, -- profiles restore values, not the replaced window position
+		saveCustomThemesInProfiles = true, -- embeds the active custom theme inside saved profiles
 		compatibilityMode = "auto", -- auto, safe, strict, or off
 		strictCompatibility = false,
 		controlErrorIsolation = true, -- one failed component will not stop the rest of the UI
@@ -3577,6 +3715,7 @@ function Library:new(options)
 				"StatGrid","StatsGrid","SessionStats","GoalProgress","MoneyGoal","Goal","Counter","NumberInput","PercentageDisplay",
 				"PercentDisplay","TimerDisplay","Stopwatch","Countdown","ActivityLog","SessionLog","MiniChart","Chart","Sparkline",
 				"SearchBox","SearchDropdown","Section","Segmented","Separator","Slider","Spacer","StatusCard","Stepper","Success","TextInput",
+				"ThemeGallery","ThemeEditor","ThemeBrowser","ThemeManager","ThemeBuilder",
 				"Toggle","ToggleButton","Warning"
 			}
 			for _, aliasName in ipairs(Library.ComponentAliasNames or {}) do
@@ -8080,6 +8219,33 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				end
 				return self
 			end
+
+			function control:SetThemeOverride(tokens)
+				if type(tokens) ~= "table" then return self end
+				self._themeOverride = {}
+				for key, value in pairs(tokens) do self._themeOverride[key] = value end
+				if type(GUI._ApplyControlThemeOverride) == "function" then pcall(GUI._ApplyControlThemeOverride, GUI, self) end
+				return self
+			end
+			function control:GetThemeOverride()
+				if type(self._themeOverride) ~= "table" then return nil end
+				local copy = {}
+				for key, value in pairs(self._themeOverride) do copy[key] = value end
+				return copy
+			end
+			function control:ClearThemeOverride()
+				self._themeOverride = nil
+				pcall(function() GUI:_RefreshThemeVisuals() end)
+				return self
+			end
+			function control:RefreshTheme()
+				if self._themeOverride and type(GUI._ApplyControlThemeOverride) == "function" then
+					pcall(GUI._ApplyControlThemeOverride, GUI, self)
+				else
+					pcall(function() GUI:_RefreshThemeVisuals() end)
+				end
+				return self
+			end
 			function control:Destroy()
 				if self._destroyed then return nil end
 				self._destroyed = true
@@ -10079,7 +10245,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 					name='Balance', description='', tooltip='', value=0, default=nil,
 					currency='$', suffix='', decimals=0, commas=true, compact=false,
 					animate=true, animationTime=0.30, showChange=true, changeDuration=1.4,
-					positiveColor=POSITIVE, negativeColor=NEGATIVE, neutralColor=nil,
+					positiveColor=Library.Theme.Positive or POSITIVE, negativeColor=Library.Theme.Negative or NEGATIVE, neutralColor=nil,
 					icon='💵', formatter=nil, callback=function() end, valueObject=nil,
 				}, opts)
 				local initial = tonumber(opts.default ~= nil and opts.default or opts.value) or 0
@@ -10186,7 +10352,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				opts = validate({
 					name='Session Profit', description='', tooltip='', startingValue=0, currentValue=0,
 					currency='$', decimals=0, commas=true, compact=false, showPercentage=true,
-					positiveColor=POSITIVE, negativeColor=NEGATIVE, neutralColor=NEUTRAL,
+					positiveColor=Library.Theme.Positive or POSITIVE, negativeColor=Library.Theme.Negative or NEGATIVE, neutralColor=NEUTRAL,
 				}, opts)
 				local Profit = {Starting=tonumber(opts.startingValue) or 0, Current=tonumber(opts.currentValue) or 0}
 				Profit.frame = base('ProfitDisplay', 86)
@@ -10236,7 +10402,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				opts = validate({
 					name='Recent Transactions', tooltip='', height=190, maxEntries=8, currency='$',
 					decimals=0, commas=true, compact=false, showTimestamp=true,
-					incomeColor=POSITIVE, expenseColor=NEGATIVE, neutralColor=NEUTRAL,
+					incomeColor=Library.Theme.Positive or POSITIVE, expenseColor=Library.Theme.Negative or NEGATIVE, neutralColor=NEUTRAL,
 				}, opts)
 				local Transactions = {Entries={}, MaxEntries=math.max(1, math.floor(tonumber(opts.maxEntries) or 8)), _nextId=0}
 				Transactions.frame = base('TransactionList', math.max(110, tonumber(opts.height) or 190) + 34)
@@ -10561,6 +10727,11 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			end
 
 			local constructorAliases = {
+				ThemeBrowser='ThemeGallery',
+				ThemeShowcase='ThemeGallery',
+				ThemeManager='ThemeEditor',
+				ThemeBuilder='ThemeEditor',
+				ThemeDesigner='ThemeEditor',
 				ObjectInspector='InstanceInspector',
 				PagedList='VirtualList',
 				Tracker='SessionTracker',
@@ -11216,7 +11387,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				end
 			end
 
-			local canonicalComponents = {'MoneyDisplay','ProfitDisplay','TransactionList','StatGrid','GoalProgress','Counter','NumberInput','PercentageDisplay','TimerDisplay','Stopwatch','Countdown','ActivityLog','MiniChart','DataTable','InventoryGrid','Form','SessionTracker','VirtualList','InstanceInspector','Button','Toggle','Slider','Dropdown','SearchDropdown','TextInput','ColorPicker','Keybind','ProgressBar','NumberDisplay','Label','Paragraph','Section','Separator','Badge','Chip','Info','Warning','Success','StatusCard','LogConsole','CodeBlock','CopyButton','Hyperlink','KeyValue','MiniStat','Segmented','Stepper','SearchBox','Spacer','Divider','Image'}
+			local canonicalComponents = {'MoneyDisplay','ProfitDisplay','TransactionList','StatGrid','GoalProgress','Counter','NumberInput','PercentageDisplay','TimerDisplay','Stopwatch','Countdown','ActivityLog','MiniChart','DataTable','InventoryGrid','Form','SessionTracker','VirtualList','InstanceInspector','ThemeGallery','ThemeEditor','Button','Toggle','Slider','Dropdown','SearchDropdown','TextInput','ColorPicker','Keybind','ProgressBar','NumberDisplay','Label','Paragraph','Section','Separator','Badge','Chip','Info','Warning','Success','StatusCard','LogConsole','CodeBlock','CopyButton','Hyperlink','KeyValue','MiniStat','Segmented','Stepper','SearchBox','Spacer','Divider','Image'}
 			for _, canonicalName in ipairs(canonicalComponents) do
 				normalizedAliasLookup[normalizeComponentName(canonicalName)] = canonicalName
 			end
@@ -12224,7 +12395,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 				"MoneyDisplay", "BalanceDisplay", "CashDisplay", "CurrencyDisplay", "ProfitDisplay", "Profit",
 				"TransactionList", "Transactions", "StatGrid", "StatsGrid", "SessionStats", "GoalProgress", "MoneyGoal", "Goal",
 				"Counter", "NumberInput", "PercentageDisplay", "PercentDisplay", "TimerDisplay", "Stopwatch", "Countdown",
-				"ActivityLog", "SessionLog", "MiniChart", "Chart", "Sparkline", "DataTable", "InventoryGrid", "Form", "SessionTracker", "VirtualList", "InstanceInspector"
+				"ActivityLog", "SessionLog", "MiniChart", "Chart", "Sparkline", "DataTable", "InventoryGrid", "Form", "SessionTracker", "VirtualList", "InstanceInspector", "ThemeGallery", "ThemeEditor", "ThemeBrowser", "ThemeManager", "ThemeBuilder"
 			}
 			for _, aliasName in ipairs(Library.ComponentAliasNames or {}) do table.insert(names, aliasName) end
 			for _, factoryName in ipairs(Library.ComponentFactoryNames or {}) do table.insert(names, factoryName) end
@@ -13725,6 +13896,8 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		if role == "Topbar" then return _themeTransparency("Topbar", 0) end
 		if role == "UserBox" then return _themeTransparency("UserBox", 0) end
 		if role == "Background" then return _themeTransparency("Background", 0) end
+		if role == "Input" then return _themeTransparency("Input", _themeTransparency("Background", 0)) end
+		if role == "Card" then return _themeTransparency("Card", _themeTransparency("Surface", 0)) end
 		if role == "Surface" then return _themeTransparency("Surface", 0) end
 		return nil
 	end
@@ -13799,6 +13972,13 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		local nav = Library.Theme.Nav or background
 		local topbar = Library.Theme.Topbar or background
 		local border = Library.Theme.Border or Color3.fromRGB(50, 50, 60)
+		local input = Library.Theme.Input or background
+		local card = Library.Theme.Card or surface
+		local positive = Library.Theme.Positive or Color3.fromRGB(80,220,135)
+		local negative = Library.Theme.Negative or Color3.fromRGB(255,88,105)
+		local warningColor = Library.Theme.Warning or Color3.fromRGB(255,195,85)
+		local infoColor = Library.Theme.Info or Color3.fromRGB(90,165,255)
+		local textOnAccent = Library.Theme.TextOnAccent or Color3.fromRGB(255,255,255)
 		local textPrimary = Library.Theme.TextPrimary or Color3.fromRGB(235, 235, 245)
 		local textSecondary = Library.Theme.TextSecondary or Color3.fromRGB(145, 145, 165)
 		local textDisabled = Library.Theme.TextDisabled or Color3.fromRGB(85, 85, 100)
@@ -13821,12 +14001,12 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			Property = "Surface", PropertyRow = "Surface", Stat = "Surface", StatCard = "Surface", MultiDropdown = "Surface",
 			MultiSelect = "Surface", MultiSelectDropdown = "Surface", Spacer = "Surface",
 
-			InputBox = "Background", KeybindBox = "Background", DropdownSearchBox = "Background", DropdownValue = "Background", SearchValue = "Background",
-			DropdownList = "Background", SearchDropdownList = "Background", SliderTrack = "Background", SliderValuePill = "Background",
+			InputBox = "Input", KeybindBox = "Input", DropdownSearchBox = "Input", DropdownValue = "Input", SearchValue = "Input",
+			DropdownList = "Input", SearchDropdownList = "Input", SliderTrack = "Input", SliderValuePill = "Input",
 			SliderThumbCore = "Background", TogglePill = "Background", DDHeader = "Background", ResizeHandle = "Background",
-			ThemePreview = "Background", AccentPreviewBox = "Background", LogScroll = "Background", StepperBox = "Background",
+			ThemePreview = "Card", AccentPreviewBox = "Input", LogScroll = "Input", StepperBox = "Input",
 			SegmentedHolder = "Background", KeyValuePill = "Background", CodeScroll = "Background", SearchBoxInput = "Background",
-			Option = "Surface", DropdownOption = "Surface", SearchOption = "Surface", SegmentOption = "Surface", Row = "Surface",
+			Option = "Card", DropdownOption = "Card", SearchOption = "Card", SegmentOption = "Card", Row = "Card",
 		}
 		local textRoleByName = {
 			Title = "TextPrimary", Subtitle = "TextSecondary", SearchText = "TextSecondary", UserName = "TextPrimary", UserSub = "TextSecondary",
@@ -13867,8 +14047,9 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			if _hasAny(lower, {"nav", "sidebar", "sidepanel"}) then return "Nav" end
 			if _hasAny(lower, {"topbar", "titlebar", "headerbar"}) then return "Topbar" end
 			if _hasAny(lower, {"main", "content", "background", "backdrop", "canvas"}) then return "Background" end
-			if _hasAny(lower, {"input", "textbox", "search", "value", "track", "scroll", "list", "holder", "container", "pill", "box", "preview"}) then return "Background" end
-			if _hasAny(lower, {"button", "toggle", "slider", "dropdown", "paragraph", "card", "stat", "section", "group", "panel", "row", "option", "item", "alert", "notice", "banner", "code", "property", "multi", "stepper", "segmented", "console"}) then return "Surface" end
+			if _hasAny(lower, {"input", "textbox", "search", "value", "track", "scroll", "list", "holder", "container", "pill", "box", "preview"}) then return "Input" end
+			if _hasAny(lower, {"card", "stat", "row", "option", "item", "alert", "notice", "banner", "property"}) then return "Card" end
+			if _hasAny(lower, {"button", "toggle", "slider", "dropdown", "paragraph", "section", "group", "panel", "code", "multi", "stepper", "segmented", "console"}) then return "Surface" end
 			return nil
 		end
 		local function _inferTextRole(obj, name)
@@ -13893,7 +14074,7 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 			if obj:IsA("TextButton") and tostring(obj.Text or "") ~= "" then
 				local accentProp = obj:GetAttribute("VenturaAccentProp")
 				if obj:GetAttribute("VenturaAccent") == true and (accentProp == nil or accentProp == "BackgroundColor3") then
-					obj.TextColor3 = Color3.fromRGB(255,255,255)
+					obj.TextColor3 = textOnAccent
 					return
 				end
 			end
@@ -13997,6 +14178,13 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		_styleMinimizeBubble()
 		local themeData = Library.Themes and Library.Themes[GUI:GetTheme()]
 		if themeData then pcall(function() _applyThemeDesign(themeData, GUI:GetTheme()) end) end
+		if type(GUI._ApplyControlThemeOverride) == "function" then
+			for _, tab in ipairs(GUI._tabs or {}) do
+				for _, control in ipairs(tab._usabilityControls or {}) do
+					if control and control._themeOverride then pcall(GUI._ApplyControlThemeOverride, GUI, control) end
+				end
+			end
+		end
 		return true
 	end
 
@@ -14010,7 +14198,65 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		return 0.2126 * channel(c.R) + 0.7152 * channel(c.G) + 0.0722 * channel(c.B)
 	end
 
+
+	local function _copyThemeValue(value, seen)
+		if type(value) ~= "table" then return value end
+		seen = seen or {}
+		if seen[value] then return seen[value] end
+		local copy = {}
+		seen[value] = copy
+		for key, item in pairs(value) do copy[_copyThemeValue(key, seen)] = _copyThemeValue(item, seen) end
+		return copy
+	end
+
+	local function _contrastText(background)
+		return _relativeLuminance(background) > 0.46 and Color3.fromRGB(20, 24, 31) or Color3.fromRGB(255, 255, 255)
+	end
+
+	local function _normalizeThemeDefinition(name, themeData)
+		if type(themeData) ~= "table" then return nil end
+		local theme = _copyThemeValue(themeData)
+		local background = typeof(theme.Background) == "Color3" and theme.Background or Color3.fromRGB(18,18,22)
+		local surface = typeof(theme.Surface) == "Color3" and theme.Surface
+			or (typeof(theme.Panel) == "Color3" and theme.Panel)
+			or background:Lerp(Color3.new(1,1,1), _relativeLuminance(background) > 0.5 and 0.02 or 0.065)
+		local accent = typeof(theme.Accent) == "Color3" and theme.Accent
+			or (Library.ThemeAccents and Library.ThemeAccents[name])
+			or Library.Theme.Accent
+			or Color3.fromRGB(100,150,255)
+		theme.Background = background
+		theme.Surface = surface
+		theme.Panel = typeof(theme.Panel) == "Color3" and theme.Panel or surface
+		theme.Card = typeof(theme.Card) == "Color3" and theme.Card or surface:Lerp(background, 0.12)
+		theme.Input = typeof(theme.Input) == "Color3" and theme.Input or background:Lerp(surface, 0.42)
+		theme.SurfaceHover = typeof(theme.SurfaceHover) == "Color3" and theme.SurfaceHover or surface:Lerp(_relativeLuminance(surface) > 0.5 and Color3.new(0,0,0) or Color3.new(1,1,1), 0.08)
+		theme.Nav = typeof(theme.Nav) == "Color3" and theme.Nav or background:Lerp(Color3.new(0,0,0), 0.12)
+		theme.Topbar = typeof(theme.Topbar) == "Color3" and theme.Topbar or background:Lerp(Color3.new(0,0,0), 0.18)
+		theme.UserBox = typeof(theme.UserBox) == "Color3" and theme.UserBox or surface
+		theme.Border = typeof(theme.Border) == "Color3" and theme.Border or surface:Lerp(_relativeLuminance(surface) > 0.5 and Color3.new(0,0,0) or Color3.new(1,1,1), 0.13)
+		theme.BorderHover = typeof(theme.BorderHover) == "Color3" and theme.BorderHover or theme.Border:Lerp(accent, 0.45)
+		theme.Accent = accent
+		theme.AccentHover = typeof(theme.AccentHover) == "Color3" and theme.AccentHover or accent:Lerp(Color3.new(1,1,1), 0.16)
+		theme.AccentPressed = typeof(theme.AccentPressed) == "Color3" and theme.AccentPressed or accent:Lerp(Color3.new(0,0,0), 0.20)
+		theme.Focus = typeof(theme.Focus) == "Color3" and theme.Focus or theme.AccentHover
+		theme.Selection = typeof(theme.Selection) == "Color3" and theme.Selection or accent:Lerp(surface, 0.42)
+		local light = _relativeLuminance(background:Lerp(surface, 0.35)) > 0.55
+		theme.TextPrimary = typeof(theme.TextPrimary) == "Color3" and theme.TextPrimary or (light and Color3.fromRGB(25,29,37) or Color3.fromRGB(242,246,255))
+		theme.TextSecondary = typeof(theme.TextSecondary) == "Color3" and theme.TextSecondary or (light and Color3.fromRGB(72,81,96) or Color3.fromRGB(152,166,195))
+		theme.TextDisabled = typeof(theme.TextDisabled) == "Color3" and theme.TextDisabled or (light and Color3.fromRGB(125,134,148) or Color3.fromRGB(82,92,118))
+		theme.TextOnAccent = typeof(theme.TextOnAccent) == "Color3" and theme.TextOnAccent or _contrastText(accent)
+		theme.Positive = typeof(theme.Positive) == "Color3" and theme.Positive or Color3.fromRGB(80,220,135)
+		theme.Negative = typeof(theme.Negative) == "Color3" and theme.Negative or Color3.fromRGB(255,88,105)
+		theme.Warning = typeof(theme.Warning) == "Color3" and theme.Warning or Color3.fromRGB(255,195,85)
+		theme.Info = typeof(theme.Info) == "Color3" and theme.Info or Color3.fromRGB(90,165,255)
+		theme.Overlay = typeof(theme.Overlay) == "Color3" and theme.Overlay or (light and Color3.fromRGB(25,35,50) or Color3.fromRGB(0,0,0))
+		theme.OverlayTransparency = math.clamp(tonumber(theme.OverlayTransparency) or 0.35, 0, 0.95)
+		theme.Category = tostring(theme.Category or "Custom")
+		return theme
+	end
+
 	local function _applySmartContrast(themeData)
+		if type(themeData) == "table" and themeData.AutoTextContrast == false then return false end
 		if GUI._smartContrastEnabled == false and not (type(themeData) == "table" and themeData.SmartContrast == true) then return false end
 		local bg = Library.Theme.Background or Color3.fromRGB(18,18,22)
 		local surface = Library.Theme.Surface or bg
@@ -14056,11 +14302,15 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 	function GUI:_applyTheme(val)
 		local t = Library.Themes[val]; if not t then return false end
+		t = _normalizeThemeDefinition(val, t)
+		Library.Themes[val] = t
 		local previousAccent = Library.Theme.Accent
 		GUI._savedTheme = val
 		for k,v in pairs(t) do
 			if k ~= "UserBox" and k ~= "Accent" and typeof(v) == "Color3" then Library.Theme[k] = v end
 		end
+		Library.Theme.OverlayTransparency = math.clamp(tonumber(t.OverlayTransparency) or 0.35, 0, 0.95)
+		Library.Theme.UserBox = t.UserBox or t.Surface
 		_applySmartContrast(t)
 		local mixedAnimation = GUI._themeMixAnimationStyle or t.AnimationStyle or tostring(val):lower()
 		_setSpaceBackground(t.Stars ~= false or t.Animated == true or tostring(val) == "Space", mixedAnimation)
@@ -14559,6 +14809,514 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 		return true
 	end
 
+
+	-- ══════════════════════════════════════════════════════════════════════
+	-- v5.99.4 ADVANCED THEME ENGINE
+	-- ══════════════════════════════════════════════════════════════════════
+	local _themeHttpService = game:GetService("HttpService")
+	GUI._themePreviewSnapshot = nil
+	GUI._themePreviewTemporaryName = nil
+
+	local function _themeHex(color)
+		if typeof(color) ~= "Color3" then return nil end
+		return string.format("#%02X%02X%02X", math.floor(color.R*255+0.5), math.floor(color.G*255+0.5), math.floor(color.B*255+0.5))
+	end
+	local function _themeColorFromHex(value)
+		if typeof(value) == "Color3" then return value end
+		local hex = tostring(value or ""):gsub("#", "")
+		if #hex ~= 6 or not hex:match("^[%da-fA-F]+$") then return nil end
+		return Color3.fromRGB(tonumber(hex:sub(1,2),16) or 0, tonumber(hex:sub(3,4),16) or 0, tonumber(hex:sub(5,6),16) or 0)
+	end
+	local function _encodeThemeTree(value, seen)
+		local kind = typeof(value)
+		if kind == "Color3" then return {__type="Color3", value=_themeHex(value)} end
+		if type(value) ~= "table" then return value end
+		seen = seen or {}
+		if seen[value] then return nil end
+		seen[value] = true
+		local output = {}
+		for key, item in pairs(value) do output[tostring(key)] = _encodeThemeTree(item, seen) end
+		seen[value] = nil
+		return output
+	end
+	local function _decodeThemeTree(value)
+		if type(value) ~= "table" then return value end
+		if value.__type == "Color3" then return _themeColorFromHex(value.value) end
+		local output = {}
+		for key, item in pairs(value) do output[key] = _decodeThemeTree(item) end
+		return output
+	end
+	local function _safeThemeFileName(name)
+		name = tostring(name or "Theme"):gsub("[^%w%-%._ ]", "_"):gsub("%s+", "_")
+		return name ~= "" and name or "Theme"
+	end
+	local function _themeStorageFolder()
+		local root = tostring(V._cfgRootFolder or V._cfgFolder or "VenturaUI")
+		return root .. "/Themes"
+	end
+	local function _ensureThemeStorage()
+		if not hasFileAPI() then return false end
+		pcall(function()
+			if not isfolder(V._cfgRootFolder) then makefolder(V._cfgRootFolder) end
+			local folder = _themeStorageFolder()
+			if not isfolder(folder) then makefolder(folder) end
+		end)
+		return true
+	end
+
+	function GUI:GetThemeTokens(name)
+		local themeName = tostring(name or GUI:GetTheme())
+		local data = Library.Themes and Library.Themes[themeName]
+		if not data then return nil end
+		return _normalizeThemeDefinition(themeName, data)
+	end
+	function GUI:GetThemeToken(token, name)
+		local data = GUI:GetThemeTokens(name)
+		return data and data[tostring(token)] or nil
+	end
+	function GUI:SetThemeToken(token, value, applyNow)
+		local name = GUI:GetTheme()
+		if GUI:IsBuiltInTheme(name) then
+			local customName = name .. " Custom"
+			local suffix = 2
+			while Library.Themes[customName] do customName = name .. " Custom " .. tostring(suffix); suffix = suffix + 1 end
+			GUI:DuplicateTheme(name, customName, true)
+			name = customName
+		end
+		local theme = Library.Themes and Library.Themes[name]
+		if not theme then return false end
+		token = tostring(token or "")
+		if token == "" then return false end
+		if typeof(value) ~= "Color3" and token ~= "OverlayTransparency" then
+			local parsed = _themeColorFromHex(value)
+			if parsed then value = parsed end
+		end
+		theme[token] = value
+		Library.Themes[name] = _normalizeThemeDefinition(name, theme)
+		if applyNow ~= false then GUI:SetTheme(name, true) end
+		GUI:MarkConfigDirty()
+		return true
+	end
+	function GUI:IsBuiltInTheme(name)
+		return Library.BuiltInThemeNames and Library.BuiltInThemeNames[tostring(name or GUI:GetTheme())] == true
+	end
+	function GUI:IsCustomTheme(name)
+		name = tostring(name or GUI:GetTheme())
+		local data = Library.Themes and Library.Themes[name]
+		return type(data) == "table" and (data.Custom == true or not GUI:IsBuiltInTheme(name))
+	end
+	function GUI:ValidateTheme(themeOrName)
+		local name, data
+		if type(themeOrName) == "table" then name, data = "Custom", themeOrName else name = tostring(themeOrName or GUI:GetTheme()); data = Library.Themes[name] end
+		if type(data) ~= "table" then return false, {"Theme does not exist"} end
+		local normalized = _normalizeThemeDefinition(name, data)
+		local issues = {}
+		for _, token in ipairs({"Background","Surface","Accent","TextPrimary","TextSecondary","Border"}) do
+			if typeof(normalized[token]) ~= "Color3" then table.insert(issues, token .. " must be a Color3") end
+		end
+		local report = GUI:GetThemeContrastReport(normalized)
+		if report.primary < 4.5 then table.insert(issues, "Primary text contrast is below 4.5:1") end
+		if report.secondary < 3.0 then table.insert(issues, "Secondary text contrast is below 3:1") end
+		if report.onAccent < 3.0 then table.insert(issues, "Text-on-accent contrast is below 3:1") end
+		return #issues == 0, issues, normalized
+	end
+	function GUI:GetContrastRatio(colorA, colorB)
+		local a, b = _relativeLuminance(colorA), _relativeLuminance(colorB)
+		local light, dark = math.max(a,b), math.min(a,b)
+		return (light + 0.05) / (dark + 0.05)
+	end
+	function GUI:GetThemeContrastReport(themeOrName)
+		local data
+		if type(themeOrName) == "table" then data = _normalizeThemeDefinition("Report", themeOrName)
+		else data = GUI:GetThemeTokens(themeOrName) end
+		if not data then return {primary=0,secondary=0,onAccent=0,passed=false} end
+		local report = {
+			primary = GUI:GetContrastRatio(data.TextPrimary, data.Background),
+			secondary = GUI:GetContrastRatio(data.TextSecondary, data.Background),
+			onAccent = GUI:GetContrastRatio(data.TextOnAccent, data.Accent),
+		}
+		report.passed = report.primary >= 4.5 and report.secondary >= 3 and report.onAccent >= 3
+		return report
+	end
+	function GUI:AutoFixThemeContrast(name, applyNow)
+		name = tostring(name or GUI:GetTheme())
+		local theme = Library.Themes and Library.Themes[name]
+		if not theme then return false end
+		theme = _normalizeThemeDefinition(name, theme)
+		local light = _relativeLuminance(theme.Background:Lerp(theme.Surface, 0.35)) > 0.5
+		theme.TextPrimary = light and Color3.fromRGB(24,28,36) or Color3.fromRGB(246,248,255)
+		theme.TextSecondary = light and Color3.fromRGB(66,76,92) or Color3.fromRGB(164,176,202)
+		theme.TextDisabled = light and Color3.fromRGB(120,132,148) or Color3.fromRGB(88,98,122)
+		theme.TextOnAccent = _contrastText(theme.Accent)
+		Library.Themes[name] = theme
+		if applyNow ~= false then GUI:SetTheme(name, true) end
+		return true
+	end
+
+	function GUI:CreateTheme(name, themeData, applyNow)
+		name = tostring(name or ""):match("^%s*(.-)%s*$")
+		if name == "" or type(themeData) ~= "table" then return false, "invalid theme" end
+		if GUI:IsBuiltInTheme(name) then return false, "built-in themes are protected" end
+		local normalized = _normalizeThemeDefinition(name, themeData)
+		normalized.Custom = true
+		normalized.Category = tostring(normalized.Category or "Custom")
+		Library.Themes[name] = normalized
+		if GUI._themeDropdown and type(GUI._themeDropdown.SetItems) == "function" then pcall(function() GUI._themeDropdown:SetItems(GUI:GetThemes()) end) end
+		if applyNow then GUI:SetTheme(name) end
+		return true, normalized, name
+	end
+	GUI.RegisterCustomTheme = GUI.CreateTheme
+	function GUI:UpdateTheme(name, patch, applyNow)
+		name = tostring(name or GUI:GetTheme())
+		if GUI:IsBuiltInTheme(name) then return false, "duplicate the built-in theme before editing" end
+		if type(patch) ~= "table" or type(Library.Themes[name]) ~= "table" then return false end
+		local updated = _copyThemeValue(Library.Themes[name])
+		for key, value in pairs(patch) do updated[key] = value end
+		updated.Custom = not GUI:IsBuiltInTheme(name) or updated.Custom == true
+		Library.Themes[name] = _normalizeThemeDefinition(name, updated)
+		if applyNow ~= false and name == GUI:GetTheme() then GUI:SetTheme(name, true) end
+		GUI:MarkConfigDirty()
+		return true
+	end
+	function GUI:DuplicateTheme(sourceName, newName, applyNow)
+		sourceName = tostring(sourceName or GUI:GetTheme())
+		newName = tostring(newName or (sourceName .. " Copy"))
+		local sourceTheme = Library.Themes[sourceName]
+		if type(sourceTheme) ~= "table" then return false end
+		local copy = _copyThemeValue(sourceTheme)
+		copy.Custom = true
+		copy.Category = "Custom"
+		return GUI:CreateTheme(newName, copy, applyNow)
+	end
+	function GUI:DeleteTheme(name, deleteSavedFile)
+		name = tostring(name or "")
+		if name == "" or GUI:IsBuiltInTheme(name) then return false, "built-in themes are protected" end
+		if GUI:GetTheme() == name then GUI:SetTheme("Dark", true) end
+		Library.Themes[name] = nil
+		if deleteSavedFile ~= false and hasFileAPI() then
+			local path = _themeStorageFolder() .. "/" .. _safeThemeFileName(name) .. ".json"
+			pcall(function() if isfile(path) and type(delfile) == "function" then delfile(path) end end)
+		end
+		return true
+	end
+	function GUI:ResetTheme(name, applyNow)
+		name = tostring(name or GUI:GetTheme())
+		local original = Library.BuiltInThemeDefaults and Library.BuiltInThemeDefaults[name]
+		if type(original) == "table" then
+			Library.Themes[name] = _copyThemeValue(original)
+			if applyNow ~= false then GUI:SetTheme(name, true) end
+			return true
+		end
+		local loaded = GUI:LoadTheme(name, applyNow ~= false)
+		if loaded then return true end
+		return GUI:DeleteTheme(name, false)
+	end
+
+	function GUI:ExportTheme(name, copyToClipboard)
+		name = tostring(name or GUI:GetTheme())
+		local data = Library.Themes and Library.Themes[name]
+		if type(data) ~= "table" then return nil end
+		local payload = {format="MenuXDTheme", version=1, name=name, theme=_encodeThemeTree(_normalizeThemeDefinition(name, data))}
+		local ok, raw = pcall(function() return _themeHttpService:JSONEncode(payload) end)
+		if not ok then return nil end
+		if copyToClipboard == true and type(setclipboard) == "function" then pcall(setclipboard, raw) end
+		return raw
+	end
+	function GUI:ImportTheme(rawOrTable, applyNow, overwrite)
+		local payload = rawOrTable
+		if type(payload) == "string" then
+			local ok, decoded = pcall(function() return _themeHttpService:JSONDecode(payload) end)
+			if not ok then return false, decoded end
+			payload = decoded
+		end
+		if type(payload) ~= "table" then return false, "invalid theme payload" end
+		local name = tostring(payload.name or payload.Name or "Imported Theme")
+		if GUI:IsBuiltInTheme(name) or (Library.Themes[name] and overwrite ~= true) then
+			local baseName = name .. " Copy"
+			name = baseName
+			local suffix = 2
+			while Library.Themes[name] do name = baseName .. " " .. tostring(suffix); suffix = suffix + 1 end
+		end
+		local theme = _decodeThemeTree(payload.theme or payload.colors or payload)
+		if type(theme) ~= "table" then return false, "missing theme data" end
+		theme.Custom = true
+		return GUI:CreateTheme(name, theme, applyNow == true)
+	end
+	function GUI:SaveTheme(name)
+		name = tostring(name or GUI:GetTheme())
+		if not _ensureThemeStorage() then return false, "file API unavailable" end
+		local raw = GUI:ExportTheme(name, false)
+		if not raw then return false, "theme does not exist" end
+		local path = _themeStorageFolder() .. "/" .. _safeThemeFileName(name) .. ".json"
+		local ok, err = pcall(writefile, path, raw)
+		if ok and Library.Themes[name] then Library.Themes[name].Saved = true end
+		return ok, ok and path or err
+	end
+	function GUI:LoadTheme(name, applyNow)
+		name = tostring(name or "")
+		if name == "" or not hasFileAPI() then return false end
+		local path = _themeStorageFolder() .. "/" .. _safeThemeFileName(name) .. ".json"
+		local okExists, exists = pcall(isfile, path)
+		if not okExists or not exists then return false end
+		local ok, raw = pcall(readfile, path)
+		if not ok then return false end
+		return GUI:ImportTheme(raw, applyNow == true, true)
+	end
+	function GUI:GetSavedThemes()
+		local names = {}
+		if not hasFileAPI() or type(listfiles) ~= "function" then return names end
+		_ensureThemeStorage()
+		pcall(function()
+			for _, path in ipairs(listfiles(_themeStorageFolder())) do
+				local normalized = tostring(path):gsub("\\", "/")
+				local name = normalized:match("([^/]+)%.json$")
+				if name then table.insert(names, name:gsub("_", " ")) end
+			end
+		end)
+		table.sort(names)
+		return names
+	end
+
+	function GUI:PreviewTheme(themeOrName)
+		if not GUI._themePreviewSnapshot then
+			GUI._themePreviewSnapshot = {
+				name=GUI:GetTheme(),
+				accent=Library.Theme.Accent,
+				manualAccent=GUI._manualAccent,
+				themeAccentMode=GUI._themeAccentMode,
+			}
+		end
+		local name = themeOrName
+		if type(themeOrName) == "table" then
+			name = "__MenuXDThemePreview"
+			Library.Themes[name] = _normalizeThemeDefinition(name, themeOrName)
+			GUI._themePreviewTemporaryName = name
+		end
+		name = tostring(name or "")
+		if not Library.Themes[name] then return false end
+		return GUI:_applyTheme(name)
+	end
+	function GUI:IsThemePreviewing() return GUI._themePreviewSnapshot ~= nil end
+	function GUI:CancelThemePreview()
+		local snapshot = GUI._themePreviewSnapshot
+		if not snapshot then return false end
+		if GUI._themePreviewTemporaryName then Library.Themes[GUI._themePreviewTemporaryName] = nil end
+		GUI._themePreviewTemporaryName = nil
+		GUI._themePreviewSnapshot = nil
+		GUI._manualAccent = snapshot.manualAccent
+		GUI._themeAccentMode = snapshot.themeAccentMode
+		GUI:_applyTheme(snapshot.name)
+		if typeof(snapshot.accent) == "Color3" then GUI:SetAccent(snapshot.accent, true) end
+		return true
+	end
+	function GUI:CommitThemePreview(name)
+		if not GUI._themePreviewSnapshot then return false end
+		if GUI._themePreviewTemporaryName and name then
+			local previewData = Library.Themes[GUI._themePreviewTemporaryName]
+			GUI:CreateTheme(name, previewData, true)
+			Library.Themes[GUI._themePreviewTemporaryName] = nil
+		end
+		GUI._themePreviewSnapshot = nil
+		GUI._themePreviewTemporaryName = nil
+		GUI:MarkConfigDirty()
+		return true
+	end
+
+	function GUI:_ApplyControlThemeOverride(control)
+		if not control or not control.frame or type(control._themeOverride) ~= "table" then return false end
+		local tokens = {}
+		for _, token in ipairs(Library.ThemeTokens or {}) do tokens[token] = Library.Theme[token] end
+		for token, value in pairs(control._themeOverride) do tokens[token] = value end
+		local function chooseText(name)
+			local lower = tostring(name or ""):lower()
+			if lower:find("success",1,true) or lower:find("positive",1,true) or lower:find("income",1,true) or lower:find("profit",1,true) then return tokens.Positive end
+			if lower:find("error",1,true) or lower:find("negative",1,true) or lower:find("expense",1,true) or lower:find("loss",1,true) then return tokens.Negative end
+			if lower:find("warning",1,true) then return tokens.Warning end
+			if lower:find("info",1,true) then return tokens.Info end
+			if lower:find("accent",1,true) or lower:find("selected",1,true) then return tokens.Accent end
+			if lower:find("desc",1,true) or lower:find("subtitle",1,true) or lower:find("hint",1,true) or lower:find("secondary",1,true) then return tokens.TextSecondary end
+			if lower:find("disabled",1,true) or lower:find("placeholder",1,true) then return tokens.TextDisabled end
+			return tokens.TextPrimary
+		end
+		local function applyObject(obj)
+			if not obj or obj:GetAttribute("VenturaNoTheme") == true then return end
+			local lower = tostring(obj.Name or ""):lower()
+			if obj:IsA("UIStroke") then
+				obj.Color = (lower:find("accent",1,true) or lower:find("selected",1,true)) and (tokens.Accent or Library.Theme.Accent) or (tokens.Border or Library.Theme.Border)
+			elseif obj:IsA("TextLabel") or obj:IsA("TextBox") or obj:IsA("TextButton") then
+				obj.TextColor3 = chooseText(obj.Name)
+				if obj:IsA("TextBox") then obj.PlaceholderColor3 = tokens.TextDisabled or Library.Theme.TextDisabled end
+				if obj.BackgroundTransparency < 0.96 then
+					if lower:find("accent",1,true) or lower:find("selected",1,true) or lower:find("fill",1,true) then obj.BackgroundColor3 = tokens.Accent or Library.Theme.Accent
+					elseif lower:find("input",1,true) or lower:find("box",1,true) or lower:find("value",1,true) then obj.BackgroundColor3 = tokens.Input or Library.Theme.Input
+					else obj.BackgroundColor3 = tokens.Surface or Library.Theme.Surface end
+				end
+			elseif obj:IsA("Frame") or obj:IsA("ScrollingFrame") then
+				if obj.BackgroundTransparency < 0.96 then
+					if lower:find("accent",1,true) or lower:find("selected",1,true) or lower:find("fill",1,true) then obj.BackgroundColor3 = tokens.Accent or Library.Theme.Accent
+					elseif lower:find("input",1,true) or lower:find("box",1,true) or lower:find("track",1,true) or lower:find("list",1,true) then obj.BackgroundColor3 = tokens.Input or Library.Theme.Input
+					elseif lower:find("card",1,true) or lower:find("row",1,true) or lower:find("item",1,true) then obj.BackgroundColor3 = tokens.Card or Library.Theme.Card
+					else obj.BackgroundColor3 = tokens.Surface or Library.Theme.Surface end
+				end
+			elseif obj:IsA("ImageLabel") or obj:IsA("ImageButton") then
+				obj.ImageColor3 = lower:find("accent",1,true) and (tokens.Accent or Library.Theme.Accent) or (tokens.TextSecondary or Library.Theme.TextSecondary)
+			end
+		end
+		applyObject(control.frame)
+		for _, obj in ipairs(control.frame:GetDescendants()) do pcall(applyObject, obj) end
+		return true
+	end
+
+	function GUI:SetThemeTransitionMode(mode, duration)
+		mode = tostring(mode or "fade"):lower()
+		if mode ~= "fade" and mode ~= "direct" and mode ~= "none" then mode = "fade" end
+		GUI._themeTransitionMode = mode
+		GUI:SetThemeTransition(mode == "fade", duration)
+		return mode
+	end
+	function GUI:GetThemeTransitionMode() return GUI._themeTransitionMode or "fade" end
+
+	function Tab:ThemeGallery(opts)
+		opts = validate({name="Theme Gallery", tooltip="", height=330, category="All", query="", pageSize=14, previewOnClick=true}, opts)
+		local Gallery = {Category=tostring(opts.category or "All"), Query=tostring(opts.query or ""), Page=1, PageSize=math.max(4, math.floor(tonumber(opts.pageSize) or 14)), Selected=nil}
+		Gallery.frame = base("ThemeGallery", math.max(240, tonumber(opts.height) or 330))
+		pad(Gallery.frame, 0, 9, 8, 10)
+		local title = lbl(Gallery.frame, tostring(opts.name), 13, Library.Theme.TextPrimary, FONT_UI_BOLD)
+		title.Name="ControlTitle"; title.Position=UDim2.new(0,0,0,4); title.Size=UDim2.new(0.45,0,0,20)
+		local search = Instance.new("TextBox", Gallery.frame)
+		search.Name="ThemeGallerySearch"; search.BackgroundColor3=Library.Theme.Input or Library.Theme.Background; search.BorderSizePixel=0
+		search.PlaceholderText="Search themes"; search.ClearTextOnFocus=false; search.Text=Gallery.Query
+		search.TextColor3=Library.Theme.TextPrimary; search.PlaceholderColor3=Library.Theme.TextDisabled; search.FontFace=FONT_UI; search.TextSize=11
+		search.Position=UDim2.new(0,0,0,30); search.Size=UDim2.new(0.53,-3,0,25); corner(search,6); stroke(search,Library.Theme.Border)
+		local categories = GUI:GetThemeCategories()
+		local categoryIndex = 1
+		for i, category in ipairs(categories) do if category == Gallery.Category then categoryIndex = i break end end
+		local categoryButton = mkbtn(Gallery.frame, Gallery.Category, 0,30,0,25,function() end)
+		categoryButton.AnchorPoint=Vector2.new(1,0); categoryButton.Position=UDim2.new(1,0,0,30); categoryButton.Size=UDim2.new(0.45,0,0,25)
+		local pageLabel = lbl(Gallery.frame, "", 10, Library.Theme.TextSecondary, FONT_MONO_BOLD, Enum.TextXAlignment.Center)
+		pageLabel.Position=UDim2.new(0.35,0,1,-24); pageLabel.Size=UDim2.new(0.3,0,0,22)
+		local prev = mkbtn(Gallery.frame, "<", 0,0,32,22,function() end); prev.Position=UDim2.new(0,0,1,-24)
+		local nextButton = mkbtn(Gallery.frame, ">", 0,0,32,22,function() end); nextButton.AnchorPoint=Vector2.new(1,0); nextButton.Position=UDim2.new(1,0,1,-24)
+		local cancelPreview = mkbtn(Gallery.frame, "Cancel Preview", 38,0,100,22,function() GUI:CancelThemePreview() end); cancelPreview.Position=UDim2.new(0,38,1,-24)
+		local scroll = Instance.new("ScrollingFrame", Gallery.frame)
+		scroll.Name="ThemeGalleryGrid"; scroll.BackgroundTransparency=1; scroll.BorderSizePixel=0; scroll.ScrollBarThickness=2
+		scroll.Position=UDim2.new(0,0,0,61); scroll.Size=UDim2.new(1,0,1,-91); scroll.CanvasSize=UDim2.new(0,0,0,0)
+		local grid = Instance.new("UIGridLayout", scroll); grid.CellPadding=UDim2.new(0,6,0,6); grid.CellSize=UDim2.new(0.5,-3,0,82); grid.SortOrder=Enum.SortOrder.LayoutOrder
+		grid:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() scroll.CanvasSize=UDim2.new(0,0,0,grid.AbsoluteContentSize.Y+3) end)
+		local function filteredNames()
+			local names = GUI:GetThemesByCategory(Gallery.Category)
+			local q = Gallery.Query:lower()
+			if q == "" then return names end
+			local filtered = {}
+			for _, name in ipairs(names) do if name:lower():find(q,1,true) then table.insert(filtered,name) end end
+			return filtered
+		end
+		local function render()
+			for _, child in ipairs(scroll:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end
+			local names = filteredNames()
+			local pages = math.max(1, math.ceil(#names / Gallery.PageSize))
+			Gallery.Page = math.clamp(Gallery.Page,1,pages)
+			pageLabel.Text = tostring(Gallery.Page) .. " / " .. tostring(pages)
+			local first = (Gallery.Page-1)*Gallery.PageSize+1
+			local last = math.min(#names, first+Gallery.PageSize-1)
+			for index=first,last do
+				local name = names[index]
+				local theme = GUI:GetThemeTokens(name)
+				if theme then
+					local card = Instance.new("Frame", scroll); card.Name="ThemeCard"; card.BackgroundColor3=theme.Surface; card.BorderSizePixel=0; corner(card,8); stroke(card,theme.Border)
+					local nameLabel=lbl(card,name,11,theme.TextPrimary,FONT_UI_BOLD); nameLabel.Position=UDim2.new(0,7,0,5); nameLabel.Size=UDim2.new(1,-14,0,16); nameLabel.TextTruncate=Enum.TextTruncate.AtEnd
+					for swatchIndex, color in ipairs({theme.Background,theme.Surface,theme.Accent,theme.TextPrimary}) do
+						local swatch=Instance.new("Frame",card); swatch.BackgroundColor3=color; swatch.BorderSizePixel=0; swatch.Position=UDim2.new(0,7+(swatchIndex-1)*22,0,27); swatch.Size=UDim2.new(0,18,0,16); corner(swatch,4)
+					end
+					local preview=mkbtn(card,"Preview",7,50,58,23,function() Gallery:Preview(name) end)
+					local apply=mkbtn(card,"Apply",70,50,52,23,function() Gallery:Apply(name) end)
+				end
+			end
+		end
+		function Gallery:Refresh() render(); return Gallery end
+		function Gallery:SetQuery(query) Gallery.Query=tostring(query or ""); search.Text=Gallery.Query; Gallery.Page=1; render(); return Gallery end
+		function Gallery:SetCategory(category) Gallery.Category=tostring(category or "All"); categoryButton.Text=Gallery.Category; Gallery.Page=1; render(); return Gallery end
+		function Gallery:Preview(name) Gallery.Selected=name; GUI:PreviewTheme(name); return Gallery end
+		function Gallery:Apply(name) Gallery.Selected=name; GUI:CancelThemePreview(); GUI:SetTheme(name); return Gallery end
+		function Gallery:GetSelected() return Gallery.Selected end
+		function Gallery:NextPage() Gallery.Page=Gallery.Page+1; render(); return Gallery end
+		function Gallery:PreviousPage() Gallery.Page=Gallery.Page-1; render(); return Gallery end
+		search:GetPropertyChangedSignal("Text"):Connect(function() Gallery.Query=search.Text; Gallery.Page=1; render() end)
+		categoryButton.MouseButton1Click:Connect(function() categoryIndex=categoryIndex%#categories+1; Gallery:SetCategory(categories[categoryIndex]) end)
+		prev.MouseButton1Click:Connect(function() Gallery:PreviousPage() end)
+		nextButton.MouseButton1Click:Connect(function() Gallery:NextPage() end)
+		render(); addTooltip(Gallery.frame,opts.tooltip)
+		return _universalControl(Gallery,opts)
+	end
+
+	function Tab:ThemeEditor(opts)
+		opts = validate({name="Theme Editor", tooltip="", height=410, themeName=nil, tokens={"Background","Surface","Input","Card","Nav","Topbar","Border","BorderHover","Accent","AccentHover","AccentPressed","TextPrimary","TextSecondary","TextDisabled","TextOnAccent","Positive","Negative","Warning","Info"}},opts)
+		local _editorSourceTheme = GUI:GetTheme()
+		local Editor={ThemeName=tostring(opts.themeName or (_editorSourceTheme .. " Custom")),Data={}}
+		Editor.frame=base("ThemeEditor",math.max(320,tonumber(opts.height) or 410)); pad(Editor.frame,0,9,8,10)
+		local title=lbl(Editor.frame,tostring(opts.name),13,Library.Theme.TextPrimary,FONT_UI_BOLD); title.Name="ControlTitle"; title.Position=UDim2.new(0,0,0,4); title.Size=UDim2.new(0.42,0,0,20)
+		local nameBox=Instance.new("TextBox",Editor.frame); nameBox.Name="ThemeNameInput"; nameBox.BackgroundColor3=Library.Theme.Input or Library.Theme.Background; nameBox.BorderSizePixel=0; nameBox.ClearTextOnFocus=false; nameBox.Text=Editor.ThemeName; nameBox.TextColor3=Library.Theme.TextPrimary; nameBox.FontFace=FONT_UI; nameBox.TextSize=11; nameBox.AnchorPoint=Vector2.new(1,0); nameBox.Position=UDim2.new(1,0,0,2); nameBox.Size=UDim2.new(0.5,0,0,25); corner(nameBox,6); stroke(nameBox,Library.Theme.Border)
+		local scroll=Instance.new("ScrollingFrame",Editor.frame); scroll.Name="ThemeTokenScroll"; scroll.BackgroundColor3=Library.Theme.Background; scroll.BorderSizePixel=0; scroll.Position=UDim2.new(0,0,0,34); scroll.Size=UDim2.new(1,0,1,-72); scroll.ScrollBarThickness=2; scroll.CanvasSize=UDim2.new(0,0,0,0); corner(scroll,7); stroke(scroll,Library.Theme.Border); pad(scroll,6,6,6,6)
+		local layout=Instance.new("UIListLayout",scroll); layout.Padding=UDim.new(0,4); layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function() scroll.CanvasSize=UDim2.new(0,0,0,layout.AbsoluteContentSize.Y+4) end)
+		local tokenRows={}
+		local function updateRow(token)
+			local row=tokenRows[token]; local value=Editor.Data[token]
+			if row and typeof(value)=="Color3" then row.box.Text=_themeHex(value); row.swatch.BackgroundColor3=value end
+		end
+		local function buildRows()
+			for _,child in ipairs(scroll:GetChildren()) do if child:IsA("GuiObject") then child:Destroy() end end
+			tokenRows={}
+			for _,token in ipairs(opts.tokens or {}) do
+				local row=Instance.new("Frame",scroll); row.BackgroundColor3=Library.Theme.Card or Library.Theme.Surface; row.BorderSizePixel=0; row.Size=UDim2.new(1,0,0,28); corner(row,6); stroke(row,Library.Theme.Border)
+				local label=lbl(row,token,10,Library.Theme.TextSecondary,FONT_MONO_BOLD); label.Position=UDim2.new(0,8,0,0); label.Size=UDim2.new(0.47,-8,1,0)
+				local swatch=Instance.new("TextButton",row); swatch.AutoButtonColor=false; swatch.Text=""; swatch.AnchorPoint=Vector2.new(1,0.5); swatch.Position=UDim2.new(1,-8,0.5,0); swatch.Size=UDim2.new(0,25,0,20); swatch.BorderSizePixel=0; corner(swatch,5); stroke(swatch,Library.Theme.Border)
+				local box=Instance.new("TextBox",row); box.BackgroundColor3=Library.Theme.Input or Library.Theme.Background; box.BorderSizePixel=0; box.ClearTextOnFocus=false; box.TextColor3=Library.Theme.TextPrimary; box.FontFace=FONT_MONO; box.TextSize=10; box.AnchorPoint=Vector2.new(1,0.5); box.Position=UDim2.new(1,-39,0.5,0); box.Size=UDim2.new(0,92,0,20); corner(box,5); stroke(box,Library.Theme.Border)
+				tokenRows[token]={row=row,box=box,swatch=swatch}
+				box.FocusLost:Connect(function() local color=_themeColorFromHex(box.Text); if color then Editor:SetToken(token,color) else updateRow(token) end end)
+				swatch.MouseButton1Click:Connect(function()
+					GUI:Prompt({title="Set "..token,message="Enter a six-digit hex color.",default=_themeHex(Editor.Data[token]),callback=function(raw) local color=_themeColorFromHex(raw); if color then Editor:SetToken(token,color) end end})
+				end)
+			end
+		end
+		local buttons=Instance.new("Frame",Editor.frame); buttons.BackgroundTransparency=1; buttons.Position=UDim2.new(0,0,1,-30); buttons.Size=UDim2.new(1,0,0,26)
+		mkbtn(buttons,"Preview",0,0,62,24,function() Editor:Preview() end)
+		mkbtn(buttons,"Apply",68,0,56,24,function() Editor:Apply() end)
+		mkbtn(buttons,"Save",130,0,54,24,function() Editor:Save() end)
+		mkbtn(buttons,"Export",190,0,60,24,function() Editor:Export(true) end)
+		mkbtn(buttons,"Reset",256,0,54,24,function() Editor:Reset() end)
+		function Editor:LoadTheme(name, keepOutputName)
+			name=tostring(name or GUI:GetTheme()); local data=GUI:GetThemeTokens(name); if not data then return false end
+			if keepOutputName ~= true then Editor.ThemeName=name; nameBox.Text=name end
+			Editor.Data=_copyThemeValue(data); for token in pairs(tokenRows) do updateRow(token) end; return true
+		end
+		function Editor:SetThemeName(name) Editor.ThemeName=tostring(name or "Custom Theme"); nameBox.Text=Editor.ThemeName; return Editor end
+		function Editor:SetToken(token,value) if typeof(value)=="Color3" then Editor.Data[token]=value; updateRow(token) end; return Editor end
+		function Editor:GetToken(token) return Editor.Data[token] end
+		function Editor:GetData() return _copyThemeValue(Editor.Data) end
+		function Editor:Preview() Editor.ThemeName=nameBox.Text; GUI:PreviewTheme(Editor.Data); return Editor end
+		function Editor:Apply()
+			Editor.ThemeName=nameBox.Text
+			if GUI:IsBuiltInTheme(Editor.ThemeName) then Editor.ThemeName=Editor.ThemeName .. " Custom"; nameBox.Text=Editor.ThemeName end
+			GUI:CancelThemePreview()
+			local ok = GUI:CreateTheme(Editor.ThemeName,Editor.Data,true)
+			if not ok then GUI:UpdateTheme(Editor.ThemeName,Editor.Data,true) end
+			return Editor
+		end
+		function Editor:Save() Editor:Apply(); return GUI:SaveTheme(Editor.ThemeName) end
+		function Editor:Export(copy) Editor.ThemeName=nameBox.Text; GUI:CreateTheme(Editor.ThemeName,Editor.Data,false); return GUI:ExportTheme(Editor.ThemeName,copy==true) end
+		function Editor:Import(raw)
+			local ok, _, importedName=GUI:ImportTheme(raw,false,false)
+			if ok and importedName then Editor.ThemeName=importedName; nameBox.Text=importedName; return Editor:LoadTheme(importedName, true) end
+			return false
+		end
+		function Editor:Reset() GUI:CancelThemePreview(); return Editor:LoadTheme(GUI:GetTheme()) end
+		buildRows(); Editor:LoadTheme(_editorSourceTheme, true); addTooltip(Editor.frame,opts.tooltip)
+		return _universalControl(Editor,opts)
+	end
+	Tab.ThemeBrowser = Tab.ThemeGallery
+	Tab.ThemeManager = Tab.ThemeEditor
+	Tab.ThemeBuilder = Tab.ThemeEditor
+
 	function GUI:ExportConfig(copyToClipboard)
 		local raw = GUI:_configPayload()
 		if copyToClipboard then pcall(function() setclipboard(raw) end) end
@@ -14615,10 +15373,16 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 	GUI._saveQueued = false
 	function GUI:_configPayload()
+		local _payloadThemeName = GUI._savedTheme or options.theme or "Dark"
+		local _inlineThemePack = ""
+		if options.saveCustomThemesInProfiles ~= false and type(GUI.IsCustomTheme) == "function" and GUI:IsCustomTheme(_payloadThemeName) and type(GUI.ExportTheme) == "function" then
+			_inlineThemePack = GUI:ExportTheme(_payloadThemeName, false) or ""
+		end
 		local payload = {
 			profile   = _cfgEsc(V._cfgProfile),
 			accent    = GUI:_c3ToHex(Library.Theme.Accent),
-			theme     = GUI._savedTheme or options.theme or "Dark",
+			theme     = _payloadThemeName,
+			customThemePack = _cfgEsc(_inlineThemePack),
 			scale     = currentScale,
 			winW      = math.floor(winW),
 			winH      = math.floor(winH),
@@ -14931,6 +15695,9 @@ Content.Size=UDim2.new(1,-(navW+28),1,-64)
 
 	function GUI:ApplyConfig(data)
 		if not data then return end
+		if data.customThemePack and tostring(data.customThemePack) ~= "" and type(GUI.ImportTheme) == "function" then
+			pcall(function() GUI:ImportTheme(_cfgUnesc(data.customThemePack), false, true) end)
+		end
 		if data.theme and Library.Themes[data.theme] then
 			GUI:_applyTheme(data.theme)
 			if GUI._cfgSyncCallbacks.theme then pcall(GUI._cfgSyncCallbacks.theme, data.theme) end
