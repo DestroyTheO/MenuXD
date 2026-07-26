@@ -1,6 +1,6 @@
-# MenuXD UI Library — Complete Beginner Guide
+# VenturaUI UI Library — Complete Beginner Guide
 
-**Made by CrimmyXD**
+**Updated and Made by CrimmyXD**
 **Discord: `zr1xscript`**
 
 This guide explains how to:
